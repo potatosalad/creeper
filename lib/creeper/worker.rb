@@ -160,6 +160,9 @@ class Creeper::Worker
     @handlers.keys
   end
 
+  def error_handler
+    @error_handler
+  end
 
 end
 

@@ -51,7 +51,6 @@ module Creeper
     @@soft_quit = soft_quit
   end
 
-
   def work(jobs=nil, thread_count=1)
     thread_count.times do
       w = Creeper::Worker.new()
@@ -75,17 +74,17 @@ module Creeper
     end
     running.each do |runner|
       if runner[:worker].job_in_progress?
-        puts "Murder [scheduling]"
+        log "Murder [scheduling]"
         runner[:worker].soft_quit = true  
       else
-        puts "Murder [now]"
+        log "Murder [now]"
         runner[:thread].kill
       end
     end
     running.each do |runner|
       runner[:thread].join
     end
-    puts "SEPPUKU!!"
+    log "SEPPUKU!!"
   end
 
   def failed_connection(e)
