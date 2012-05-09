@@ -152,6 +152,8 @@ module Creeper
   end
 
   def clear!
+    @@soft_quit = false
+    @@running = []
     @@handlers = nil
     @@before_handlers = nil
     @@error_handler = nil
