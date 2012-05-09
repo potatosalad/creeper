@@ -1,6 +1,7 @@
 # Creeper
 
-TODO: Write a gem description
+Can be used as an in place drop in for stalker but it is multi threaded so you can easily do more without using more memory
+
 
 ## Installation
 
