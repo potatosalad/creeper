@@ -8,7 +8,8 @@ Creeper - an improvement on Stalker
 The big difference is how you "work" jobs
 
 all you need is a thread count arguement :)
-Creeper.work(<jobs>, <thread_count>)
+
+    Creeper.work(<jobs>, <thread_count>)
 
 [Beanstalkd](http://kr.github.com/beanstalkd/) is a fast, lightweight queueing backend inspired by mmemcached.
 
