@@ -67,7 +67,7 @@ module Creeper
           t =  Thread.new do
             w.work(jobs)
           end
-          running[index] << {thread: t, worker: w}
+          running[index] = {thread: t, worker: w}
         end
       end
       sleep 1
