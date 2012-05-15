@@ -9,7 +9,9 @@ $LOAD_PATH.unshift(File.dirname(__FILE__) + '/../lib') unless $LOAD_PATH.include
 
 require 'creeper'
 
-Creeper.job('jack.work') do |*args|
+include Creeper::Creep
+
+job('jack.work') do |*args|
   Creeper.logger.info "[JACK.WORK] #{$0.inspect} #{args.inspect}"
 end
 

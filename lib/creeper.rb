@@ -12,6 +12,7 @@ require 'kgio'
 require 'logger'
 
 require 'creeper/version'
+require 'creeper/creep'
 require 'creeper/session'
 require 'creeper/worker'
 
@@ -45,6 +46,7 @@ module Creeper
   attr_accessor :job_file, :jobs, :patience, :ready_pipe, :runner_count, :soft_quit, :timeout
 
   extend self
+  extend Creeper::Creep
 
   ## utilities ##
 
@@ -291,32 +293,5 @@ module Creeper
   end
 
   ##
-
-  public
-
-  def clear!
-    @default_session.disconnect if @default_session
-    @default_session = nil
-  end
-
-  def default_session
-    @default_session ||= Creeper::Session.new
-  end
-
-  def enqueue(job, args = {}, opts = {})
-    default_session.enqueue(job, args, opts)
-  end
-
-  def job(name, &block)
-    default_session.job(name, &block)
-  end
-
-  def before(&block)
-    default_session.before(&block)
-  end
-
-  def error(&block)
-    default_session.error(&block)
-  end
 
 end

@@ -28,7 +28,7 @@ op = OptionParser.new("", 24, '  ') do |opts|
   end
 
   opts.on("-r", "--runner-count NUMBER", "Threads to run (default: #{options[:runner_count]})") do |r|
-    options[:runner_count] = r
+    options[:runner_count] = (r.to_i rescue 1)
   end
 
   opts.separator "Common options:"
