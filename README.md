@@ -53,8 +53,14 @@ job 'post.cleanup' do |args|
   Post.find(args['id']).cleanup
 end
 
-Creeper.work(nil, 3) # work all jobs, 3 threads
-# Creeper.work([ 'email.send', 'post.cleanup.all', 'post.cleanup' ], 3) # same as previous line
+# All of these Creeper.work calls are equivalent:
+
+Creeper.work(:all, 3)                                                 # work all jobs, 3 threads
+Creeper.work(nil, 3)                                                  # same as previous line
+Creeper.work([ 'email.send', 'post.cleanup.all', 'post.cleanup' ], 3) # same as previous line
+
+# Here we work just one job:
+Creeper.work('email.send', 5) # work 'email.send', 5 threads
 ```
 
 Running

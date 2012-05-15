@@ -68,7 +68,9 @@ module Creeper
     def prepare
       raise NoJobsDefined if session.handlers.empty?
 
-      jobs = options[:jobs] || session.all_jobs
+      jobs   = session.all_jobs if options[:jobs] == :all
+      jobs ||= options[:jobs] ? [*options[:jobs]] : session.all_jobs
+      jobs   = session.all_jobs if jobs.empty?
 
       jobs.each do |job|
         raise(NoSuchJob, job) unless session.handlers.has_key?(job)
