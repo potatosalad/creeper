@@ -4,6 +4,9 @@
 # creeper -j jack.rb
 # OR
 # ./jack.rb
+#
+# If you remove the shebang, it can also be run with:
+# ruby jack.rb
 
 $LOAD_PATH.unshift(File.dirname(__FILE__) + '/../lib') unless $LOAD_PATH.include?(File.dirname(__FILE__) + '/../lib')
 
@@ -15,4 +18,4 @@ job('jack.work') do |*args|
   Creeper.logger.info "[JACK.WORK] #{$0.inspect} #{args.inspect}"
 end
 
-Creeper.work([ 'jack.work' ], 1) unless defined?(Creeper::Launcher)
+Creeper.work(:all, 1) unless defined?(Creeper::Launcher)
