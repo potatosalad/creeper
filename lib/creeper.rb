@@ -228,7 +228,6 @@ module Creeper
         GRAVEYARD[thread] = worker
       else
         logger.debug "creeper [murder] => hard quit" if $DEBUG
-        worker.session.disconnect
         thread.kill
         thread.join
       end
@@ -268,6 +267,10 @@ module Creeper
   end
 
   def proc_name(tag)
+    if defined?(Navy) and defined?($officer)
+      Creeper::START_CTX.merge!(Navy::Admiral::START_CTX)
+      tag = "(#{$officer.captain.label}) officer[#{$officer.number}] #{tag}"
+    end
     $0 = ([
       File.basename(Creeper::START_CTX[0]),
       tag
