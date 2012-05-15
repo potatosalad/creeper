@@ -13,7 +13,7 @@ describe Creeper do
     w = Creeper::Worker.new
     w.stub(:exception_message)
     w.stub(:log)
-    w.prep
+    w.prepare
     w.work_one_job
     val.should == $result
   end
@@ -25,7 +25,7 @@ describe Creeper do
     w = Creeper::Worker.new
     w.stub(:exception_message)
     w.stub(:log)
-    w.prep
+    w.prepare
     w.work_one_job
     $handled.should_not == nil
     'my.job'.should == $job_name
@@ -40,7 +40,7 @@ describe Creeper do
     w = Creeper::Worker.new
     w.stub(:exception_message)
     w.stub(:log)
-    w.prep
+    w.prepare
     w.work_one_job
     exception.should == $handled
   end
@@ -52,7 +52,7 @@ describe Creeper do
     w = Creeper::Worker.new
     w.stub(:exception_message)
     w.stub(:log)
-    w.prep
+    w.prepare
     w.work_one_job
     false.should == $handled
   end
@@ -64,7 +64,7 @@ describe Creeper do
     w = Creeper::Worker.new
     w.stub(:exception_message)
     w.stub(:log)
-    w.prep
+    w.prepare
     w.work_one_job
     $handled.should == "didn't time out"
   end
@@ -76,7 +76,7 @@ describe Creeper do
     w = Creeper::Worker.new
     w.stub(:exception_message)
     w.stub(:log)
-    w.prep
+    w.prepare
     w.work_one_job
     true.should == $handled
   end
@@ -88,7 +88,7 @@ describe Creeper do
     w = Creeper::Worker.new
     w.stub(:exception_message)
     w.stub(:log)
-    w.prep
+    w.prepare
     w.work_one_job
     'my.job'.should == $jobname
   end
@@ -100,7 +100,7 @@ describe Creeper do
     w = Creeper::Worker.new
     w.stub(:exception_message)
     w.stub(:log)
-    w.prep
+    w.prepare
     w.work_one_job
     true.should == $handled
   end
@@ -113,20 +113,11 @@ describe Creeper do
     w = Creeper::Worker.new
     w.stub(:exception_message)
     w.stub(:log)
-    w.prep
+    w.prepare
     w.work_one_job
     $handled.should_not == nil
     'my.job'.should ==  $job_name
     {'foo' => 123}.should == $job_args
-  end
-  
-  it "parse BEANSTALK_URL" do
-    ENV['BEANSTALK_URL'] = "beanstalk://localhost:12300"
-    Creeper.beanstalk_addresses.should == ["localhost:12300"]
-    ENV['BEANSTALK_URL'] = "beanstalk://localhost:12300/, beanstalk://localhost:12301/"
-    Creeper.beanstalk_addresses.should == ["localhost:12300","localhost:12301"]
-    ENV['BEANSTALK_URL'] = "beanstalk://localhost:12300   beanstalk://localhost:12301"
-    Creeper.beanstalk_addresses.should == ["localhost:12300","localhost:12301"]
   end
 
   def with_an_error_handler
@@ -136,6 +127,5 @@ describe Creeper do
       $job_args = args
     end
   end
-
   
 end

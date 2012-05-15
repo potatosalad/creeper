@@ -15,9 +15,12 @@ Gem::Specification.new do |gem|
   gem.require_paths = ["lib"]
   gem.version       = Creeper::VERSION
 
-  gem.add_dependency "beanstalk-client"
+  gem.add_development_dependency 'pry'
   gem.add_development_dependency 'rspec'
-  gem.add_dependency 'pry'
+  # gem.add_development_dependency 'stalker'
+
+  gem.add_dependency 'beanstalk-client'
+  gem.add_dependency 'kgio'
 
 end
 
