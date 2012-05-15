@@ -1,0 +1,62 @@
+#!/usr/bin/env ruby
+
+$LOAD_PATH.unshift(File.dirname(__FILE__) + '/../lib') unless $LOAD_PATH.include?(File.dirname(__FILE__) + '/../lib')
+
+require 'creeper/launcher'
+require 'optparse'
+
+options = { runner_count: 1 }
+
+op = OptionParser.new("", 24, '  ') do |opts|
+  cmd = File.basename($0)
+  opts.banner = "Usage: #{cmd} [ruby options] [#{cmd} options]"
+
+  opts.separator "Ruby options:"
+
+  opts.on("-d", "--debug", "set debugging flags (set $DEBUG to true)") do
+    $DEBUG = true
+  end
+
+  opts.separator "#{cmd} options:"
+
+  opts.on("-D", "--daemonize", "run daemonized in the background") do |d|
+    options[:daemonize] = !!d
+  end
+
+  opts.on("-j", "--job-file FILE", "Creeper-specific job file") do |f|
+    options[:job_file] = f
+  end
+
+  opts.on("-r", "--runner-count NUMBER", "Threads to run (default: #{options[:runner_count]})") do |r|
+    options[:runner_count] = r
+  end
+
+  opts.separator "Common options:"
+
+  opts.on_tail("-h", "--help", "Show this message") do
+    puts opts.to_s.gsub(/^.*DEPRECATED.*$/s, '')
+    exit
+  end
+
+  opts.on_tail("-v", "--version", "Show version") do
+    puts "#{cmd} v#{Creeper::VERSION}"
+    exit
+  end
+
+  opts.parse! ARGV
+
+end
+
+unless options[:job_file]
+  $stderr.puts "ERROR: job file required", ''
+  puts op.to_s.gsub(/^.*DEPRECATED.*$/s, '')
+  exit 1
+end
+
+if $DEBUG
+  require 'pp'
+  pp(options)
+end
+
+Creeper::Launcher.launch!(options) if options[:daemonize]
+Creeper.new(options).start.join

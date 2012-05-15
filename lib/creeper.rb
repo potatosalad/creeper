@@ -15,11 +15,6 @@ require 'creeper/version'
 require 'creeper/session'
 require 'creeper/worker'
 
-$stdout.sync = $stderr.sync = true
-$stdin.binmode
-$stdout.binmode
-$stderr.binmode
-
 module Creeper
 
   # These hashes map Threads to Workers
@@ -47,7 +42,7 @@ module Creeper
   end
 
   attr_accessor :logger, :error_logger
-  attr_accessor :jobs, :patience, :runner_count, :soft_quit, :timeout
+  attr_accessor :job_file, :jobs, :patience, :ready_pipe, :runner_count, :soft_quit, :timeout
 
   extend self
 
@@ -73,6 +68,12 @@ module Creeper
   ## main process ##
 
   ### config ###
+
+  def job_file=(job_file)
+    (@job_file = job_file).tap do
+      require File.expand_path(job_file) if job_file
+    end
+  end
 
   def patience
     @patience ||= 60
@@ -105,6 +106,14 @@ module Creeper
 
   ###
 
+  def new(options = {})
+    tap do
+      options.each do |key, value|
+        send("#{key}=", value) if respond_to?("#{key}=")
+      end
+    end
+  end
+
   def work(jobs = nil, runner_count = 1)
     self.jobs, self.runner_count = jobs, runner_count
 
@@ -134,6 +143,10 @@ module Creeper
 
     reset_proc_name
     logger.info "creeper process ready"
+    if ready_pipe
+      ready_pipe.syswrite($$.to_s)
+      ready_pipe = ready_pipe.close rescue nil
+    end
     begin
       reap_all_runners
       case SIG_QUEUE.shift
