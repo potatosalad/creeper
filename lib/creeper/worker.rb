@@ -109,16 +109,17 @@ module Creeper
       end
 
       job.delete
-      log_job_end(name)
+      log_job_end(name, args)
     rescue Beanstalk::NotConnected => e
       failed_connection(e)
     rescue SystemExit
-      puts "FART"
+
       raise
     rescue => e
       log_error exception_message(e)
       job.bury rescue nil
-      log_job_end(name, 'failed') if @job_begun
+      args ||= []
+      log_job_end(name, args, 'failed') if @job_begun
       if session.error_handler
         if session.error_handler.arity == 1
           session.error_handler.call(e)
@@ -135,7 +136,7 @@ module Creeper
     end
 
     def stop
-      logger.info "worker dying: #{Thread.current.inspect}"
+      logger.info "worker dying: (current=#{Thread.current.inspect}#{@thread.inspect}"
       session.disconnect
       @thread.kill
     end
@@ -152,23 +153,28 @@ module Creeper
 
     def log_job_begin(name, args)
       @working = true
-      args_flat = unless args.empty?
+      args_flat = flatten_args(args)
+
+      log [ "Working", name, args_flat ].join(' ')
+      @job_begun = Time.now
+    end
+
+    def log_job_end(name, args, failed=false)
+      @working = false
+      ellapsed = Time.now - @job_begun
+      ms = (ellapsed.to_f * 1000).to_i
+      args_flat = flatten_args(args)
+      log [ "Finished #{name} in #{ms}ms #{failed ? ' (failed)' : ''}", args_flat ].join(' ')
+    end
+
+    def flatten_args(args)
+      unless args.empty?
         '(' + args.inject([]) do |accum, (key,value)|
           accum << "#{key}=#{value}"
         end.join(' ') + ')'
       else
         ''
       end
-
-      log [ "Working", name, args_flat ].join(' ')
-      @job_begun = Time.now
-    end
-
-    def log_job_end(name, failed=false)
-      @working = false
-      ellapsed = Time.now - @job_begun
-      ms = (ellapsed.to_f * 1000).to_i
-      log "Finished #{name} in #{ms}ms #{failed ? ' (failed)' : ''}"
     end
 
   end
