@@ -12,8 +12,8 @@ module Creeper
       Creeper.logger
     end
 
-    def log_exception(*args)
-      Creeper.log_exception(*args)
+    def log_exception(prefix, exc, logger = error_logger)
+      Creeper.log_exception((prefix, exc, logger)
     end
 
     def error_logger
@@ -122,7 +122,7 @@ module Creeper
     rescue => e
       log_exception("worker[#{@thread.inspect}] loop error", e)
       job.bury rescue nil
-      args ||= []
+      args ||= {}
       log_job_end(name, args, 'failed') if @job_begun
       if session.error_handler
         if session.error_handler.arity == 1
@@ -140,7 +140,7 @@ module Creeper
     end
 
     def stop
-      logger.info "worker dying: (current=#{Thread.current.inspect}#{@thread.inspect}"
+      logger.info "worker dying: (current=#{Thread.current.inspect}, thread=#{@thread.inspect})"
       session.disconnect
       sleep 1
       @thread.kill
