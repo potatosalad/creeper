@@ -13,7 +13,7 @@ module Creeper
     end
 
     def log_exception(prefix, exc, logger = error_logger)
-      Creeper.log_exception((prefix, exc, logger)
+      Creeper.log_exception(prefix, exc, logger)
     end
 
     def error_logger
