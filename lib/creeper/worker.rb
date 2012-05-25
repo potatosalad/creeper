@@ -84,7 +84,11 @@ module Creeper
         tubes.each { |tube| beanstalk.ignore(tube) unless jobs.include?(tube) }
       end
     rescue Beanstalk::NotConnected => e
+      log_error("what the heck beanstalk not connected: #{e.inspect} ")
       log_exception("worker[#{@thread.inspect}] failed beanstalk connection", e)
+    rescue => e
+      log_error("ARRRRGH: #{e.inspect}")
+      raise
     end
 
     def work
