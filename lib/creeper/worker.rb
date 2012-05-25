@@ -84,7 +84,7 @@ module Creeper
         tubes.each { |tube| beanstalk.ignore(tube) unless jobs.include?(tube) }
       end
     rescue Beanstalk::NotConnected => e
-      failed_connection(e)
+      log_exception("worker[#{@thread.inspect}] failed beanstalk connection", e)
     end
 
     def work
@@ -111,12 +111,12 @@ module Creeper
       job.delete
       log_job_end(name, args)
     rescue Beanstalk::NotConnected => e
-      failed_connection(e)
-    rescue SystemExit
-
+      log_exception("worker[#{@thread.inspect}] failed beanstalk connection", e)
+    rescue SystemExit => e
+      log_exception("worker[#{@thread.inspect}] exit", e)
       raise
     rescue => e
-      log_error exception_message(e)
+      log_exception("worker[#{@thread.inspect}] loop error", e)
       job.bury rescue nil
       args ||= []
       log_job_end(name, args, 'failed') if @job_begun
@@ -138,18 +138,11 @@ module Creeper
     def stop
       logger.info "worker dying: (current=#{Thread.current.inspect}#{@thread.inspect}"
       session.disconnect
+      sleep 1
       @thread.kill
     end
 
     protected
-
-    def failed_connection(e)
-      session.send(:failed_connection, e)
-    end
-
-    def exception_message(e)
-      session.send(:exception_message, e)
-    end
 
     def log_job_begin(name, args)
       @working = true

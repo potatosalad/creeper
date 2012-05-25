@@ -117,7 +117,6 @@ module Creeper
       log_error "*** Failed connection to #{beanstalk_url}"
       log_error "*** Check that beanstalkd is running (or set a different BEANSTALK_URL)"
     end
-    
 
     def log(msg)
       Creeper.logger.info(msg)
