@@ -3,12 +3,30 @@ require 'creeper'
 require 'celluloid'
 require 'celluloid/worker'
 
+module Celluloid
+  module Worker
+    class Manager
+
+      def crash_handler(actor, reason)
+        return unless reason # don't restart workers that exit cleanly
+        index = @idle.rindex(actor) # replace the old actor if possible
+        if index
+          @idle[index] = @worker_class.new_link(*@args)
+        else
+          @idle << @worker_class.new_link(*@args)
+        end
+      end
+
+    end
+  end
+end
+
 module Creeper
   class Worker
 
     include Celluloid::Worker
 
-    attr_accessor :number
+    attr_accessor :number, :started_at, :stopped_at
     attr_reader :jobs
 
     def initialize(jobs = nil)
@@ -47,7 +65,7 @@ module Creeper
     def reserve(timeout = nil)
       beanstalk.reserve(timeout)
     rescue Beanstalk::NotConnected => e
-      disconnected(self, :reserve, timeout)
+      disconnected(self, :reserve, timeout) || raise
     end
 
     def watch(tube)
@@ -58,14 +76,14 @@ module Creeper
 
     ##
 
-    def work
-      prepare if not prepared?
+    def start
+      prepare     if not prepared?
       return true if working?
 
       begin
         job = reserve Creeper.reserve_timeout
       rescue Beanstalk::TimedOut
-        logger.warn "[#{number}] No job for me right now"
+        logger.warn "[#{number}] Back to the unemployment line"
         return false
       end
 
@@ -73,37 +91,62 @@ module Creeper
 
       logger.debug "[#{number}] Got #{job.inspect}"
 
-      perform! job # asynchronously go to work
+      work! job # asynchronously go to work
     end
 
-    def perform(job)
-      logger.debug "[#{number}] Working #{job.inspect}"
+    def work(job)
 
       name, data = JSON.parse(job.body)
 
+      Creeper.start_work(self, data, name, job)
+
       begin
         Creeper.before_handlers_for(name).each do |handler|
-          call(handler, data, name, job)
+          process(handler, data, name, job)
         end
 
         Creeper.handler_for(name).tap do |handler|
-          call(handler, data, name, job)
+          process(handler, data, name, job)
         end
 
         Creeper.after_handlers_for(name).each do |handler|
-          call(handler, data, name, job)
+          process(handler, data, name, job)
         end
       end
 
-      logger.debug "[#{number}] Deleting #{job.inspect}"
-
       job.delete
 
+      Creeper.stop_work(self, data, name, job)
+
+    rescue Beanstalk::NotConnected => e
+      disconnected(self, :work, job) || raise
+    rescue SystemExit => e
+      job.release rescue nil
+      Creeper.unregister_worker(self)
+      raise
+    rescue => e
+      # Creeper.log_exception("[#{number}] loop error", e)
+
+      job.bury rescue nil
+
+      Creeper.error_work(self, data, name, job)
+
+      begin
+        Creeper.error_handlers_for(name).each do |handler|
+          process(handler, data, name, job)
+        end
+      end
+
+      Creeper.unregister_worker(self)
+
+      raise
     ensure
+      @started_at = nil
+      @stopped_at = nil
       Thread.current[:creeper_working] = false
     end
 
-    def call(handler, data, name, job)
+    def process(handler, data, name, job)
       case handler.arity
       when 3
         handler.call(data, name, job)
@@ -131,7 +174,7 @@ module Creeper
     protected
 
     def disconnected(target, method, *args, &block)
-      Creeper.disconnected(target, method, *args, &block)
+      Creeper.send(:disconnected, target, method, *args, &block)
     end
 
     def prepare
