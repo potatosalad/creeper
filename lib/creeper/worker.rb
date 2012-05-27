@@ -31,6 +31,7 @@ module Creeper
 
     def initialize(jobs = nil)
       @jobs = jobs || Creeper.all_jobs
+      @jobs = Creeper.all_jobs if @jobs == :all
 
       Creeper.register_worker(self)
       logger.info "[#{number}] Working #{self.jobs.size} jobs: [ #{self.jobs.join(' ')} ]"
