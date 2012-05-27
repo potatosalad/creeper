@@ -188,8 +188,8 @@ module Creeper
     logger ||= error_logger
     message = exc.message
     message = message.dump if /[[:cntrl:]]/ =~ message
-    logger.error "#{prefix}: #{message} (#{exc.class})"
-    exc.backtrace.each { |line| logger.error(line) }
+    logger.error "#{prefix}: #{message} (#{exc.class})\n" + exc.backtrace.join("\n")
+    # exc.backtrace.each { |line| logger.error(line) }
   end
 
   ##
@@ -197,6 +197,12 @@ module Creeper
   ## workers ##
 
   WORKERS = {}
+
+  def error_work(worker, data, name, job)
+    (worker.stopped_at = Time.now).tap do |stopped_at|
+      error_logger.debug "[#{worker.number}] Error (#{name}: #{data.to_json}) #{job.inspect} => #{stopped_at} (#{worker.stopped_at - worker.started_at})"
+    end
+  end
 
   def register_worker(worker)
     lock.synchronize do
@@ -207,9 +213,21 @@ module Creeper
     end
   end
 
+  def start_work(worker, data, name, job)
+    (worker.started_at = Time.now).tap do |started_at|
+      logger.debug "[#{worker.number}] Working (#{name}: #{data.to_json}) #{job.inspect} => #{started_at}"
+    end
+  end
+
+  def stop_work(worker, data, name, job)
+    (worker.stopped_at = Time.now).tap do |stopped_at|
+      logger.debug "[#{worker.number}] Finished (#{name}: #{data.to_json}) #{job.inspect} => #{stopped_at} (#{worker.stopped_at - worker.started_at})"
+    end
+  end
+
   def unregister_worker(worker)
     lock.synchronize do
-
+      WORKERS.delete(worker.number)
     end
   end
 
