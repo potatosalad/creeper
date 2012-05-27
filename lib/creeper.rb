@@ -33,6 +33,18 @@ module Creeper
     @reserve_timeout ||= 1
   end
 
+  def worker_pool
+    lock.synchronize do
+      @worker_pool
+    end
+  end
+
+  def worker_pool=(worker_pool)
+    lock.synchronize do
+      @worker_pool = worker_pool
+    end
+  end
+
   ##
 
   ## connection ##
@@ -174,6 +186,21 @@ module Creeper
 
     beanstalk.use job
     beanstalk.put JSON.dump([ job, data ]), priority, delay, time_to_run
+  end
+
+  def work(jobs = nil, size = 2)
+    require 'creeper/worker'
+
+    options = {
+      size: size,
+      args: [jobs]
+    }
+
+    self.worker_pool = Creeper::Worker.pool(options)
+
+    loop do
+      worker_pool.start
+    end
   end
 
   ##
