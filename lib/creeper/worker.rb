@@ -1,30 +1,15 @@
 require 'creeper'
 
 require 'celluloid'
-require 'celluloid/worker'
-
-module Celluloid
-  module Worker
-    class Manager
-
-      def crash_handler(actor, reason)
-        return unless reason # don't restart workers that exit cleanly
-        index = @idle.rindex(actor) # replace the old actor if possible
-        if index
-          @idle[index] = @worker_class.new_link(*@args)
-        else
-          @idle << @worker_class.new_link(*@args)
-        end
-      end
-
-    end
-  end
-end
+require 'creeper/celluloid_ext'
 
 module Creeper
+
+  at_exit { shutdown_workers }
+
   class Worker
 
-    include Celluloid::Worker
+    include Celluloid
 
     attr_accessor :number, :started_at, :stopped_at
     attr_reader :jobs
@@ -34,15 +19,19 @@ module Creeper
       @jobs = Creeper.all_jobs if @jobs == :all
 
       Creeper.register_worker(self)
-      logger.info "[#{number}] Working #{self.jobs.size} jobs: [ #{self.jobs.join(' ')} ]"
+      Logger.info "#{prefix} Working #{self.jobs.size} jobs: [ #{self.jobs.join(' ')} ]"
     end
 
-    def logger
-      Creeper.logger
+    def dump(job, name = nil, data = nil)
+      "{ job: #{(job.inspect rescue nil)}, name: #{name.inspect rescue nil}, data: #{(data.inspect rescue nil)} }"
     end
 
-    def error_logger
-      Creeper.error_logger
+    def prefix
+      "[#{number}]"
+    end
+
+    def time_in_milliseconds
+      ((stopped_at - started_at).to_f * 1000).to_i
     end
 
     ## beanstalk ##
@@ -77,25 +66,41 @@ module Creeper
 
     ##
 
-    def start
-      prepare     if not prepared?
-      return true if working?
+    ## work ##
+
+    def start(short_circuit = false)
+      return false if short_circuit
+      exit         if stopped?
+      return true  if working?
+      prepare      if not prepared?
 
       begin
         job = reserve Creeper.reserve_timeout
       rescue Beanstalk::TimedOut
-        logger.warn "[#{number}] Back to the unemployment line"
+        Logger.warn "#{prefix} Back to the unemployment line"
         return false
       end
 
+      exit if stopped?
+
       Thread.current[:creeper_working] = true
 
-      logger.debug "[#{number}] Got #{job.inspect}"
+      Logger.debug "#{prefix} Got #{job.inspect}"
 
       work! job # asynchronously go to work
+    rescue => e
+      job.release rescue nil
+      Creeper.unregister_worker(self, "start loop error")
+      raise
+    end
+
+    def stop
+      Thread.current[:creeper_stopped] = true
     end
 
     def work(job)
+
+      exit if stopped?
 
       name, data = JSON.parse(job.body)
 
@@ -120,13 +125,16 @@ module Creeper
       Creeper.stop_work(self, data, name, job)
 
     rescue Beanstalk::NotConnected => e
-      disconnected(self, :work, job) || raise
+      disconnected(self, :work, job) || begin
+        job.release rescue nil
+        Creeper.unregister_worker(self)
+        raise
+      end
     rescue SystemExit => e
       job.release rescue nil
       Creeper.unregister_worker(self)
       raise
     rescue => e
-      # Creeper.log_exception("[#{number}] loop error", e)
 
       job.bury rescue nil
 
@@ -138,7 +146,7 @@ module Creeper
         end
       end
 
-      Creeper.unregister_worker(self)
+      Creeper.unregister_worker(self, "work loop error, burying #{dump(job, name, data)}")
 
       raise
     ensure
@@ -160,10 +168,16 @@ module Creeper
       end
     end
 
+    ##
+
     ## flags ##
 
     def prepared?
       Thread.current[:creeper_prepared] == true
+    end
+
+    def stopped?
+      Thread.current[:creeper_stopped] == true
     end
 
     def working?
