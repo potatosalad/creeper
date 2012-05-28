@@ -1,77 +1,15 @@
 require 'beanstalk-client'
 require 'json'
+require 'logger'
 require 'thread'
+require 'timeout'
 require 'uri'
 
 require 'creeper/version'
 
 module Creeper
 
-  extend self
-
-  ## configuration ##
-
-  attr_writer :beanstalk_url, :error_logger, :logger, :reserve_timeout, :retry_count
-
-  def beanstalk_url
-    @beanstalk_url ||= ENV['BEANSTALK_URL'] || 'beanstalk://localhost/'
-  end
-
-  def error_logger
-    @error_logger ||= Logger.new($stderr)
-  end
-
-  def logger
-    @logger ||= Logger.new($stdout)
-  end
-
-  def retry_count
-    @retry_count ||= 3
-  end
-
-  def reserve_timeout
-    @reserve_timeout ||= 1
-  end
-
-  def worker_pool
-    lock.synchronize do
-      @worker_pool
-    end
-  end
-
-  def worker_pool=(worker_pool)
-    lock.synchronize do
-      @worker_pool = worker_pool
-    end
-  end
-
-  ##
-
-  ## connection ##
-
-  def beanstalk
-    Thread.current[:beanstalk_pool_connection] ||= connect
-  end
-
-  def beanstalk_addresses
-    uris = beanstalk_url.split(/[\s,]+/)
-    uris.map do |uri|
-      beanstalk_host_and_port(uri)
-    end
-  end
-
-  def connect(addresses = nil)
-    Beanstalk::Pool.new(addresses || beanstalk_addresses)
-  end
-
-  def disconnect
-    Thread.current[:beanstalk_pool_connection].close rescue nil
-    Thread.current[:beanstalk_pool_connection] = nil
-  end
-
-  ##
-
-  ## handlers ##
+  class BadURL < RuntimeError; end
 
   HANDLERS = {
     named:        {},
@@ -83,207 +21,348 @@ module Creeper
     error_named:  {}
   }
 
-  def all_jobs
-    lock.synchronize do
-      HANDLERS[:named].keys
-    end
-  end
-
-  def job(name, &block)
-    lock.synchronize do
-      HANDLERS[:named][name] = block
-      HANDLERS[:before_named][name] ||= []
-      HANDLERS[:after_named][name]  ||= []
-      HANDLERS[:error_named][name]  ||= []
-      HANDLERS[:named][name]
-    end
-  end
-
-  def drop(name)
-    lock.synchronize do
-      HANDLERS[:named].delete(name)
-      HANDLERS[:before_named].delete(name)
-      HANDLERS[:after_named].delete(name)
-      HANDLERS[:error_named].delete(name)
-      true
-    end
-  end
-
-  def handler_for(name)
-    lock.synchronize do
-      HANDLERS[:named][name]
-    end
-  end
-
-  def before(name = nil, &block)
-    if name and name != :each
-      lock.synchronize do
-        HANDLERS[:before_named][name] << block
-      end
-    else
-      lock.synchronize do
-        HANDLERS[:before_each] << block
-      end
-    end
-  end
-
-  def before_handlers_for(name)
-    lock.synchronize do
-      HANDLERS[:before_each] + HANDLERS[:before_named][name]
-    end
-  end
-
-  def after(name = nil, &block)
-    if name and name != :each
-      lock.synchronize do
-        HANDLERS[:after_named][name] << block
-      end
-    else
-      lock.synchronize do
-        HANDLERS[:after_each] << block
-      end
-    end
-  end
-
-  def after_handlers_for(name)
-    lock.synchronize do
-      HANDLERS[:after_each] + HANDLERS[:after_named][name]
-    end
-  end
-
-  def error(name = nil, &block)
-    if name and name != :each
-      lock.synchronize do
-        HANDLERS[:error_named][name] << block
-      end
-    else
-      lock.synchronize do
-        HANDLERS[:error_each] << block
-      end
-    end
-  end
-
-  def error_handlers_for(name)
-    lock.synchronize do
-      HANDLERS[:error_each] + HANDLERS[:error_named][name]
-    end
-  end
-
-  ##
-
-  ## queue ##
-
-  def enqueue(job, data = {}, options = {})
-    enqueue!(job, data, options)
-  rescue Beanstalk::NotConnected => e
-    disconnected(self, :enqueue, job, data, options)
-  end
-
-  def enqueue!(job, data = {}, options = {})
-    priority    = options[:priority] || options[:pri] || 65536
-    delay       = [ 0, options[:delay].to_i ].max
-    time_to_run = options[:time_to_run] || options[:ttr] || 120
-
-    beanstalk.use job
-    beanstalk.put JSON.dump([ job, data ]), priority, delay, time_to_run
-  end
-
-  def work(jobs = nil, size = 2)
-    require 'creeper/worker'
-
-    options = {
-      size: size,
-      args: [jobs]
-    }
-
-    self.worker_pool = Creeper::Worker.pool(options)
-
-    loop do
-      worker_pool.start
-    end
-  end
-
-  ##
-
-  ## threads/utilities ##
-
-  def lock
-    @lock ||= Mutex.new
-  end
-
-  def log_exception(prefix, exc, logger = nil)
-    logger ||= error_logger
-    message = exc.message
-    message = message.dump if /[[:cntrl:]]/ =~ message
-    logger.error "#{prefix}: #{message} (#{exc.class})\n" + exc.backtrace.join("\n")
-    # exc.backtrace.each { |line| logger.error(line) }
-  end
-
-  ##
-
-  ## workers ##
-
   WORKERS = {}
 
-  def error_work(worker, data, name, job)
-    (worker.stopped_at = Time.now).tap do |stopped_at|
-      error_logger.debug "[#{worker.number}] Error (#{name}: #{data.to_json}) #{job.inspect} => #{stopped_at} (#{worker.stopped_at - worker.started_at})"
-    end
-  end
+  ## default configuration ##
 
-  def register_worker(worker)
-    lock.synchronize do
-      number = ((0..(WORKERS.keys.max || 0)+1).to_a - WORKERS.keys).first
-      WORKERS[number] = worker.tap do
-        worker.number = number
-      end
-    end
-  end
+  @beanstalk_url   = ENV['BEANSTALK_URL'] || 'beanstalk://localhost/'
+  @logger          = ::Logger.new($stderr)
+  @patience_soft   = 60
+  @patience_hard   = 30
+  @retry_count     = 3
+  @reserve_timeout = 1
 
-  def start_work(worker, data, name, job)
-    (worker.started_at = Time.now).tap do |started_at|
-      logger.debug "[#{worker.number}] Working (#{name}: #{data.to_json}) #{job.inspect} => #{started_at}"
-    end
-  end
-
-  def stop_work(worker, data, name, job)
-    (worker.stopped_at = Time.now).tap do |stopped_at|
-      logger.debug "[#{worker.number}] Finished (#{name}: #{data.to_json}) #{job.inspect} => #{stopped_at} (#{worker.stopped_at - worker.started_at})"
-    end
-  end
-
-  def unregister_worker(worker)
-    lock.synchronize do
-      WORKERS.delete(worker.number)
-    end
-  end
+  @lock = Mutex.new
 
   ##
 
-  protected
+  class << self
 
-  class BadURL < RuntimeError; end
+    ## configuration ##
 
-  def beanstalk_host_and_port(uri_string)
-    uri = URI.parse(uri_string)
-    raise(BadURL, uri_string) if uri.scheme != 'beanstalk'
-    "#{uri.host}:#{uri.port || 11300}"
-  end
+    attr_reader   :lock
+    attr_accessor :beanstalk_url, :logger, :patience_soft, :patience_hard, :reserve_timeout, :retry_count
 
-  def disconnected(target, method, *args, &block)
-    Thread.current[:beanstalk_connection_retries] ||= 0
-
-    if Thread.current[:beanstalk_connection_retries] >= retry_count
-      error_logger.error "Unable to connect to beanstalk after #{Thread.current[:beanstalk_connection_retries]} attempts"
-      Thread.current[:beanstalk_connection_retries] = 0
-      return false
+    def worker_pool
+      lock.synchronize do
+        @worker_pool
+      end
     end
 
-    disconnect
+    def worker_pool=(worker_pool)
+      lock.synchronize do
+        @worker_pool = worker_pool
+      end
+    end
 
-    Thread.current[:beanstalk_connection_retries] += 1
+    ##
 
-    target.send(method, *args, &block)
+    ## connection ##
+
+    def beanstalk
+      Thread.current[:beanstalk_pool_connection] ||= connect
+    end
+
+    def beanstalk_addresses
+      uris = beanstalk_url.split(/[\s,]+/)
+      uris.map do |uri|
+        beanstalk_host_and_port(uri)
+      end
+    end
+
+    def connect(addresses = nil)
+      Beanstalk::Pool.new(addresses || beanstalk_addresses)
+    end
+
+    def disconnect
+      Thread.current[:beanstalk_pool_connection].close rescue nil
+      Thread.current[:beanstalk_pool_connection] = nil
+    end
+
+    ##
+
+    ## daemon ##
+
+    def work(jobs = nil, size = 2)
+      require 'creeper/worker'
+
+      options = {
+        size: size,
+        args: [jobs]
+      }
+
+      self.worker_pool = Creeper::Worker.pool(options)
+
+      loop do
+        worker_pool.start
+      end
+    end
+
+    ##
+
+    ## handlers ##
+
+    def all_jobs
+      lock.synchronize do
+        HANDLERS[:named].keys
+      end
+    end
+
+    def job(name, &block)
+      lock.synchronize do
+        HANDLERS[:named][name] = block
+        HANDLERS[:before_named][name] ||= []
+        HANDLERS[:after_named][name]  ||= []
+        HANDLERS[:error_named][name]  ||= []
+        HANDLERS[:named][name]
+      end
+    end
+
+    def drop(name)
+      lock.synchronize do
+        HANDLERS[:named].delete(name)
+        HANDLERS[:before_named].delete(name)
+        HANDLERS[:after_named].delete(name)
+        HANDLERS[:error_named].delete(name)
+        true
+      end
+    end
+
+    def handler_for(name)
+      lock.synchronize do
+        HANDLERS[:named][name]
+      end
+    end
+
+    def before(name = nil, &block)
+      if name and name != :each
+        lock.synchronize do
+          HANDLERS[:before_named][name] << block
+        end
+      else
+        lock.synchronize do
+          HANDLERS[:before_each] << block
+        end
+      end
+    end
+
+    def before_handlers_for(name)
+      lock.synchronize do
+        HANDLERS[:before_each] + HANDLERS[:before_named][name]
+      end
+    end
+
+    def after(name = nil, &block)
+      if name and name != :each
+        lock.synchronize do
+          HANDLERS[:after_named][name] << block
+        end
+      else
+        lock.synchronize do
+          HANDLERS[:after_each] << block
+        end
+      end
+    end
+
+    def after_handlers_for(name)
+      lock.synchronize do
+        HANDLERS[:after_each] + HANDLERS[:after_named][name]
+      end
+    end
+
+    def error(name = nil, &block)
+      if name and name != :each
+        lock.synchronize do
+          HANDLERS[:error_named][name] << block
+        end
+      else
+        lock.synchronize do
+          HANDLERS[:error_each] << block
+        end
+      end
+    end
+
+    def error_handlers_for(name)
+      lock.synchronize do
+        HANDLERS[:error_each] + HANDLERS[:error_named][name]
+      end
+    end
+
+    ##
+
+    ## queue ##
+
+    def enqueue(job, data = {}, options = {})
+      enqueue!(job, data, options)
+    rescue Beanstalk::NotConnected => e
+      disconnected(self, :enqueue, job, data, options)
+    end
+
+    def enqueue!(job, data = {}, options = {})
+      priority    = options[:priority] || options[:pri] || 65536
+      delay       = [ 0, options[:delay].to_i ].max
+      time_to_run = options[:time_to_run] || options[:ttr] || 120
+
+      beanstalk.use job
+      beanstalk.put JSON.dump([ job, data ]), priority, delay, time_to_run
+    end
+
+    ##
+
+    ## workers ##
+
+    def error_work(worker, data, name, job)
+      (worker.stopped_at = Time.now).tap do |stopped_at|
+        Logger.error "#{worker.prefix} Error in #{worker.time_in_milliseconds}ms #{worker.dump(job, name, data)}"
+      end
+    end
+
+    def register_worker(worker)
+      lock.synchronize do
+        number = ((0..(WORKERS.keys.max || 0)+1).to_a - WORKERS.keys).first
+        WORKERS[number] = worker.tap do
+          worker.number = number
+        end
+      end
+    end
+
+    def shutdown_workers
+      begin
+        soft_shutdown_workers(Creeper.patience_soft)
+      rescue Timeout::Error
+        begin
+          hard_shutdown_workers(Creeper.patience_hard)
+        rescue Timeout::Error
+          kill_shutdown_workers
+        end
+      end
+    end
+
+    def start_work(worker, data, name, job)
+      (worker.started_at = Time.now).tap do |started_at|
+        Logger.debug "#{worker.prefix} Working #{worker.dump(job, name, data)}"
+      end
+    end
+
+    def stop_work(worker, data, name, job)
+      (worker.stopped_at = Time.now).tap do |stopped_at|
+        Logger.info "#{worker.prefix} Finished in #{worker.time_in_milliseconds}ms #{worker.dump(job, name, data)}"
+      end
+    end
+
+    def unregister_worker(worker, reason = nil)
+      reason ||= 'Stopping'
+      Logger.info "#{worker.prefix} #{reason}"
+      lock.synchronize do
+        WORKERS.delete(worker.number)
+      end
+    end
+
+    ##
+
+    protected
+
+    def beanstalk_host_and_port(uri_string)
+      uri = URI.parse(uri_string)
+      raise(BadURL, uri_string) if uri.scheme != 'beanstalk'
+      "#{uri.host}:#{uri.port || 11300}"
+    end
+
+    def disconnected(target, method, *args, &block)
+      Thread.current[:beanstalk_connection_retries] ||= 0
+
+      if Thread.current[:beanstalk_connection_retries] >= retry_count
+        Logger.error "Unable to connect to beanstalk after #{Thread.current[:beanstalk_connection_retries]} attempts"
+        Thread.current[:beanstalk_connection_retries] = 0
+        return false
+      end
+
+      disconnect
+
+      Thread.current[:beanstalk_connection_retries] += 1
+
+      target.send(method, *args, &block)
+    end
+
+    def soft_shutdown_workers(timeout)
+      Timeout.timeout(timeout) do
+        actors = Celluloid::Actor.all
+        Logger.info "Gracefully stopping #{actors.size} actors..." if actors.size > 0
+
+        # Attempt to shut down the supervision tree, if available
+        Celluloid::Supervisor.root.terminate if Celluloid::Supervisor.root
+
+        # Actors cannot self-terminate, you must do it for them
+        starts = working_actors.map do |actor|
+          begin
+            if actor.alive?
+              actor.stop! # fire and forget for those already working
+              actor.future(:start, true) # ensures that the mailbox is cleared out
+            end
+          rescue Celluloid::DeadActorError, Celluloid::MailboxError
+          end
+        end.compact
+
+        starts.each do |start|
+          begin
+            start.value
+          rescue Celluloid::DeadActorError, Celluloid::MailboxError
+          end
+        end
+
+        Logger.info "Graceful stop completed cleanly"
+      end
+    end
+
+    def hard_shutdown_workers(timeout)
+      Timeout.timeout(timeout) do
+        actors = Celluloid::Actor.all
+        Logger.info "Terminating #{actors.size} actors..." if actors.size > 0
+
+        # Attempt to shut down the supervision tree, if available
+        Celluloid::Supervisor.root.terminate if Celluloid::Supervisor.root
+
+        # Actors cannot self-terminate, you must do it for them
+        working_actors.each do |actor|
+          begin
+            actor.terminate
+          rescue Celluloid::DeadActorError, Celluloid::MailboxError
+          end
+        end
+
+        Logger.info "Termination completed cleanly"
+      end
+    end
+
+    def kill_shutdown_workers
+      actors = Celluloid::Actor.all
+      Logger.info "Killing #{actors.size} actors..." if actors.size > 0
+
+      # Attempt to shut down the supervision tree, if available
+      Celluloid::Supervisor.root.kill if Celluloid::Supervisor.root
+
+      # Actors cannot self-terminate, you must do it for them
+      Celluloid::Actor.all.each do |actor|
+        begin
+          actor.kill
+          actor.join
+        rescue Celluloid::DeadActorError, Celluloid::MailboxError
+        end
+      end
+
+      Logger.info "Killing completed cleanly"
+    end
+
+    def working_actors
+      Celluloid::Actor.all.tap do |actors|
+        actors.delete_if do |actor|
+          actor.is_a?(Celluloid::PoolManager)
+        end
+      end
+    end
+
   end
 
 end
+
+require 'creeper/logger'
