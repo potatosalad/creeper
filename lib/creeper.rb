@@ -43,17 +43,17 @@ module Creeper
     attr_reader   :lock
     attr_accessor :beanstalk_url, :logger, :patience_soft, :patience_hard, :reserve_timeout, :retry_count
 
-    def worker_pool
-      lock.synchronize do
-        @worker_pool
-      end
-    end
+    # def worker_pool
+    #   lock.synchronize do
+    #     @worker_pool
+    #   end
+    # end
 
-    def worker_pool=(worker_pool)
-      lock.synchronize do
-        @worker_pool = worker_pool
-      end
-    end
+    # def worker_pool=(worker_pool)
+    #   lock.synchronize do
+    #     @worker_pool = worker_pool
+    #   end
+    # end
 
     ##
 
@@ -91,7 +91,7 @@ module Creeper
         args: [jobs]
       }
 
-      self.worker_pool = Creeper::Worker.pool(options)
+      worker_pool = Creeper::Worker.pool(options)
 
       loop do
         worker_pool.start
@@ -193,6 +193,7 @@ module Creeper
     ## queue ##
 
     def enqueue(job, data = {}, options = {})
+      Logger.debug "Enqueueing #{job.inspect}, #{data.inspect}"#\n#{Celluloid::Actor.all.pretty_inspect}"
       enqueue!(job, data, options)
     rescue Beanstalk::NotConnected => e
       disconnected(self, :enqueue, job, data, options)
@@ -365,4 +366,5 @@ module Creeper
 
 end
 
+# require 'creeper/creep'
 require 'creeper/logger'
