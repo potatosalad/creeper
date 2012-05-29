@@ -4,8 +4,6 @@ require 'celluloid'
 require 'creeper/celluloid_ext'
 # require 'em-jack'
 
-Creeper.error_logger = Celluloid.logger
-
 module Creeper
 
   at_exit { shutdown_workers }
