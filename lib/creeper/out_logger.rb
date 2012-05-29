@@ -1,25 +1,26 @@
 module Creeper
-  module Logger
-    module_function
+  module OutLogger
+
+    extend self
 
     # Send a debug message
     def debug(string)
-      Creeper.logger.debug(string) if Creeper.logger
+      Creeper.out_logger.debug(string) if Creeper.out_logger
     end
 
     # Send a info message
     def info(string)
-      Creeper.logger.info(string) if Creeper.logger
+      Creeper.out_logger.info(string) if Creeper.out_logger
     end
 
     # Send a warning message
     def warn(string)
-      Creeper.logger.warn(string) if Creeper.logger
+      Creeper.out_logger.warn(string) if Creeper.out_logger
     end
 
     # Send an error message
     def error(string)
-      Creeper.error_logger.error(string) if Creeper.error_logger
+      Creeper.out_logger.error(string) if Creeper.out_logger
     end
 
     # Handle a crash
@@ -33,5 +34,6 @@ module Creeper
       str = "#{exception.class}: #{exception.to_s}\n"
       str << exception.backtrace.join("\n")
     end
+
   end
 end

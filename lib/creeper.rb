@@ -27,8 +27,8 @@ module Creeper
   ## default configuration ##
 
   @beanstalk_url   = ENV['BEANSTALK_URL'] || 'beanstalk://127.0.0.1/'
-  @error_logger    = ::Logger.new($stderr)
-  @logger          = ::Logger.new($stdout)
+  @err_logger      = ::Logger.new($stderr)
+  @out_logger      = ::Logger.new($stdout)
   @patience_soft   = 60
   @patience_hard   = 30
   @pool_size       = 2
@@ -101,7 +101,7 @@ module Creeper
     def work(jobs = nil, size = nil)
       require 'creeper/worker'
 
-      Creeper.pool_size = size || Creeper.pool_size
+      Creeper.pool_size = size || Creeper.pool_
 
       Creeper::Worker.work(jobs, Creeper.pool_size)
     end
@@ -213,8 +213,8 @@ module Creeper
     ## queue ##
 
     def enqueue(job, data = {}, options = {})
-      # Logger.debug "#{Thread.current[:actor].inspect} Enqueueing #{job.inspect}, #{data.inspect}"#\n#{Celluloid::Actor.all.pretty_inspect}"
-      Logger.debug "[#{Thread.current[:actor] ? Thread.current[:actor].subject.number : nil}] Enqueueing #{job.inspect}, #{data.inspect}" if $DEBUG
+      # OutLogger.debug "#{Thread.current[:actor].inspect} Enqueueing #{job.inspect}, #{data.inspect}"#\n#{Celluloid::Actor.all.pretty_inspect}"
+      OutLogger.debug "[#{Thread.current[:actor] ? Thread.current[:actor].subject.number : nil}] Enqueueing #{job.inspect}, #{data.inspect}" if $DEBUG
       enqueue!(job, data, options)
     rescue Beanstalk::NotConnected => e
       disconnected(self, :enqueue, job, data, options)
@@ -236,8 +236,7 @@ module Creeper
     def error_work(worker, data, name, job)
       (worker.stopped_at = Time.now).tap do |stopped_at|
         error_message = "#{worker.prefix} Error after #{worker.time_in_milliseconds}ms #{worker.dump(job, name, data)}"
-        ErrorLogger.error error_message
-        Logger.error error_message
+        OutLogger.error error_message
       end
     end
 
@@ -264,19 +263,19 @@ module Creeper
 
     def start_work(worker, data, name, job)
       (worker.started_at = Time.now).tap do |started_at|
-        Logger.info "#{worker.prefix} Working #{worker.dump(job, name, data)}"
+        OutLogger.info "#{worker.prefix} Working #{worker.dump(job, name, data)}"
       end
     end
 
     def stop_work(worker, data, name, job)
       (worker.stopped_at = Time.now).tap do |stopped_at|
-        Logger.info "#{worker.prefix} Finished in #{worker.time_in_milliseconds}ms #{worker.dump(job, name, data)}"
+        OutLogger.info "#{worker.prefix} Finished in #{worker.time_in_milliseconds}ms #{worker.dump(job, name, data)}"
       end
     end
 
     def unregister_worker(worker, reason = nil)
       reason ||= 'Stopping'
-      Logger.info "#{worker.prefix} #{reason}"
+      OutLogger.info "#{worker.prefix} #{reason}"
       lock.synchronize do
         WORKERS.delete(worker.number)
       end
@@ -296,7 +295,7 @@ module Creeper
       Thread.current[:beanstalk_connection_retries] ||= 0
 
       if Thread.current[:beanstalk_connection_retries] >= retry_count
-        Logger.error "Unable to connect to beanstalk after #{Thread.current[:beanstalk_connection_retries]} attempts"
+        OutLogger.error "Unable to connect to beanstalk after #{Thread.current[:beanstalk_connection_retries]} attempts"
         Thread.current[:beanstalk_connection_retries] = 0
         return false
       end
@@ -313,7 +312,7 @@ module Creeper
     def soft_shutdown_workers(timeout)
       Timeout.timeout(timeout) do
         actors = Celluloid::Actor.all
-        Logger.info "Gracefully stopping #{actors.size} actors..." if actors.size > 0
+        OutLogger.info "Gracefully stopping #{actors.size} actors..." if actors.size > 0
 
         # Attempt to shut down the supervision tree, if available
         Celluloid::Supervisor.root.terminate if Celluloid::Supervisor.root
@@ -336,14 +335,14 @@ module Creeper
           end
         end
 
-        Logger.info "Graceful stop completed cleanly"
+        OutLogger.info "Graceful stop completed cleanly"
       end
     end
 
     def hard_shutdown_workers(timeout)
       Timeout.timeout(timeout) do
         actors = Celluloid::Actor.all
-        Logger.info "Terminating #{actors.size} actors..." if actors.size > 0
+        OutLogger.info "Terminating #{actors.size} actors..." if actors.size > 0
 
         # Attempt to shut down the supervision tree, if available
         Celluloid::Supervisor.root.terminate if Celluloid::Supervisor.root
@@ -363,13 +362,13 @@ module Creeper
           end
         end
 
-        Logger.info "Termination completed cleanly"
+        OutLogger.info "Termination completed cleanly"
       end
     end
 
     def kill_shutdown_workers
       actors = Celluloid::Actor.all
-      Logger.info "Killing #{actors.size} actors..." if actors.size > 0
+      OutLogger.info "Killing #{actors.size} actors..." if actors.size > 0
 
       # Attempt to shut down the supervision tree, if available
       Celluloid::Supervisor.root.kill if Celluloid::Supervisor.root
@@ -383,7 +382,7 @@ module Creeper
         end
       end
 
-      Logger.info "Killing completed cleanly"
+      OutLogger.info "Killing completed cleanly"
     end
 
     def pool_managers
@@ -407,5 +406,5 @@ module Creeper
 end
 
 require 'creeper/creep'
-require 'creeper/error_logger'
-require 'creeper/logger'
+require 'creeper/err_logger'
+require 'creeper/out_logger'

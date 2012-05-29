@@ -1,25 +1,25 @@
 module Creeper
-  module ErrorLogger
+  module ErrLogger
     module_function
 
     # Send a debug message
     def debug(string)
-      Creeper.error_logger.debug(string) if Creeper.error_logger
+      Creeper.err_logger.debug(string) if Creeper.err_logger
     end
 
     # Send a info message
     def info(string)
-      Creeper.error_logger.info(string) if Creeper.error_logger
+      Creeper.err_logger.info(string) if Creeper.err_logger
     end
 
     # Send a warning message
     def warn(string)
-      Creeper.error_logger.warn(string) if Creeper.error_logger
+      Creeper.err_logger.warn(string) if Creeper.err_logger
     end
 
     # Send an error message
     def error(string)
-      Creeper.error_logger.error(string) if Creeper.error_logger
+      Creeper.err_logger.error(string) if Creeper.err_logger
     end
 
     # Handle a crash

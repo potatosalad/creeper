@@ -97,7 +97,7 @@ module Creeper
       @jobs = self.class.jobs_for(jobs)
 
       Creeper.register_worker(self)
-      Logger.info "#{prefix} Working #{self.jobs.size} jobs: [ #{self.jobs.join(' ')} ]"
+      OutLogger.info "#{prefix} Working #{self.jobs.size} jobs: [ #{self.jobs.join(' ')} ]"
     end
 
     def dump(job, name = nil, data = nil)
@@ -175,7 +175,7 @@ module Creeper
       begin
         job = reserve Creeper.reserve_timeout
       rescue Beanstalk::TimedOut
-        Logger.debug "#{prefix} Back to the unemployment line" if $DEBUG
+        OutLogger.debug "#{prefix} Back to the unemployment line" if $DEBUG
         return false
       end
 
@@ -183,7 +183,7 @@ module Creeper
 
       Thread.current[:creeper_working] = true
 
-      Logger.debug "#{prefix} Got #{job.inspect}" if $DEBUG
+      OutLogger.debug "#{prefix} Got #{job.inspect}" if $DEBUG
 
       work! job # asynchronously go to work
     rescue SystemExit => e
@@ -205,7 +205,7 @@ module Creeper
             finalizer.call
           end
         rescue => e
-          Logger.crash "#{prefix} finalizer error", e
+          OutLogger.crash "#{prefix} finalizer error", e
         end
       end
 
