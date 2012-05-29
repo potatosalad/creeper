@@ -44,7 +44,7 @@ module Creeper
     ## configuration ##
 
     attr_reader   :lock
-    attr_accessor :beanstalk_url, :logger, :patience_soft, :patience_hard, :pool_size, :reserve_timeout, :retry_count
+    attr_accessor :beanstalk_url, :error_logger, :logger, :patience_soft, :patience_hard, :pool_size, :reserve_timeout, :retry_count
 
     def worker_pool
       lock.synchronize do
