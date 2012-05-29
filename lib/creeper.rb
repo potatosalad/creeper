@@ -101,7 +101,7 @@ module Creeper
     def work(jobs = nil, size = nil)
       require 'creeper/worker'
 
-      Creeper.pool_size = size || Creeper.pool_
+      Creeper.pool_size = size || Creeper.pool_size
 
       Creeper::Worker.work(jobs, Creeper.pool_size)
     end
