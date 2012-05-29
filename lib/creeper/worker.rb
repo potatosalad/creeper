@@ -2,6 +2,7 @@ require 'creeper'
 
 require 'celluloid'
 require 'creeper/celluloid_ext'
+# require 'em-jack'
 
 Creeper.logger = Celluloid.logger
 
@@ -15,7 +16,7 @@ module Creeper
 
       options = {
         size: size,
-        args: [jobs]
+        args: [jobs, size]
       }
 
       Creeper.worker_pool = Creeper::Worker.pool(options)
@@ -30,14 +31,71 @@ module Creeper
       exit
     end
 
+    # def self.em_work(jobs = nil, size = 2)
+
+    #   options = {
+    #     size: size,
+    #     args: [jobs]
+    #   }
+
+    #   tubes = jobs_for(jobs)
+
+    #   Creeper.worker_pool = Creeper::Worker.pool(options)
+
+    #   sleep 1
+
+    #   EM.run do
+    #     trap(:INT)  { Creeper.shutdown = true; EM.stop }
+    #     trap(:TERM) { Creeper.shutdown = true; EM.stop }
+    #     trap(:QUIT) { Creeper.shutdown = true; EM.stop }
+
+    #     jack = EMJack::Connection.new(Creeper.beanstalk_url)
+
+    #     reserve_loop = ->(timeout) do
+    #       r = jack.reserve(timeout)
+    #       r.callback do |job|
+    #         Creeper.worker_pool.work! job
+    #         EM.next_tick { reserve_loop.call(timeout) }
+    #       end
+    #       r.errback do
+    #         EM.next_tick { reserve_loop.call(timeout) }
+    #       end
+    #     end
+
+    #     watch_tubes = ->(list) do
+    #       if list.empty?
+    #         reserve_loop.call(Creeper.reserve_timeout)
+    #       else
+    #         w = jack.watch(list.shift)
+    #         w.callback do
+    #           watch_tubes.call(list)
+    #         end
+    #       end
+    #     end
+
+    #     watch_tubes.call(tubes)
+
+    #   end
+
+    # end
+
+    def self.jobs_for(jobs = nil)
+      case jobs
+      when :all, nil
+        Creeper.all_jobs
+      else
+        Array(jobs)
+      end
+    end
+
     include Celluloid
 
     attr_accessor :number
-    attr_reader :jobs
+    attr_reader :jobs, :pool_size
 
-    def initialize(jobs = nil)
-      @jobs = jobs || Creeper.all_jobs
-      @jobs = Creeper.all_jobs if @jobs == :all
+    def initialize(jobs = nil, pool_size = 2)
+      @jobs      = self.class.jobs_for(jobs)
+      @pool_size = pool_size
 
       Creeper.register_worker(self)
       Logger.info "#{prefix} Working #{self.jobs.size} jobs: [ #{self.jobs.join(' ')} ]"
@@ -48,7 +106,11 @@ module Creeper
     end
 
     def prefix
-      "[#{number}]"
+      "[#{number_format % number} - #{'%x' % Thread.current.object_id}]"
+    end
+
+    def number_format
+      "%#{pool_size.to_s.length}d"
     end
 
     def time_in_milliseconds
@@ -114,7 +176,7 @@ module Creeper
       begin
         job = reserve Creeper.reserve_timeout
       rescue Beanstalk::TimedOut
-        Logger.warn "#{prefix} Back to the unemployment line"
+        Logger.debug "#{prefix} Back to the unemployment line" if $DEBUG
         return false
       end
 
@@ -122,7 +184,7 @@ module Creeper
 
       Thread.current[:creeper_working] = true
 
-      Logger.debug "#{prefix} Got #{job.inspect}"
+      Logger.debug "#{prefix} Got #{job.inspect}" if $DEBUG
 
       work! job # asynchronously go to work
     rescue SystemExit => e
@@ -135,6 +197,20 @@ module Creeper
     end
 
     def finalize
+      Creeper.finalizers.each do |finalizer|
+        begin
+          case finalizer.arity
+          when 1
+            finalizer.call(self)
+          else
+            finalizer.call
+          end
+        rescue => e
+          Logger.crash "#{prefix} finalizer error", e
+        end
+      end
+
+    ensure
       Creeper.disconnect
     end
 
@@ -168,6 +244,7 @@ module Creeper
 
       Creeper.stop_work(self, data, name, job)
 
+      # start! unless stopped? or EM.reactor_running?
       start! unless stopped? # continue processing, even when end of links is reached
 
     rescue Beanstalk::NotConnected => e

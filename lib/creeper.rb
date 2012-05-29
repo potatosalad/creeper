@@ -18,14 +18,15 @@ module Creeper
     after_each:   [],
     after_named:  {},
     error_each:   [],
-    error_named:  {}
+    error_named:  {},
+    finalizers:   []
   }
 
   WORKERS = {}
 
   ## default configuration ##
 
-  @beanstalk_url   = ENV['BEANSTALK_URL'] || 'beanstalk://localhost/'
+  @beanstalk_url   = ENV['BEANSTALK_URL'] || 'beanstalk://127.0.0.1/'
   @logger          = ::Logger.new($stderr)
   @patience_soft   = 60
   @patience_hard   = 30
@@ -192,13 +193,25 @@ module Creeper
       end
     end
 
+    def finalizer(&block)
+      lock.synchronize do
+        HANDLERS[:finalizers] << block
+      end
+    end
+
+    def finalizers
+      lock.synchronize do
+        HANDLERS[:finalizers]
+      end
+    end
+
     ##
 
     ## queue ##
 
     def enqueue(job, data = {}, options = {})
       # Logger.debug "#{Thread.current[:actor].inspect} Enqueueing #{job.inspect}, #{data.inspect}"#\n#{Celluloid::Actor.all.pretty_inspect}"
-      Logger.debug "[#{Thread.current[:actor] ? Thread.current[:actor].subject.number : nil}] Enqueueing #{job.inspect}, #{data.inspect}"
+      Logger.debug "[#{Thread.current[:actor] ? Thread.current[:actor].subject.number : nil}] Enqueueing #{job.inspect}, #{data.inspect}" if $DEBUG
       enqueue!(job, data, options)
     rescue Beanstalk::NotConnected => e
       disconnected(self, :enqueue, job, data, options)
@@ -246,7 +259,7 @@ module Creeper
 
     def start_work(worker, data, name, job)
       (worker.started_at = Time.now).tap do |started_at|
-        Logger.debug "#{worker.prefix} Working #{Thread.list.count} #{worker.dump(job, name, data)}"
+        Logger.info "#{worker.prefix} Working #{Thread.list.count} #{worker.dump(job, name, data)}"
       end
     end
 
@@ -286,6 +299,8 @@ module Creeper
       disconnect
 
       Thread.current[:beanstalk_connection_retries] += 1
+
+      sleep Thread.current[:beanstalk_connection_retries] * 2
 
       target.send(method, *args, &block)
     end
@@ -369,7 +384,7 @@ module Creeper
     def pool_managers
       Celluloid::Actor.all.tap do |actors|
         actors.keep_if do |actor|
-          actor.is_a?(Celluloid::PoolManager)
+          actor.is_a?(Celluloid::PoolManager) rescue false
         end
       end
     end
@@ -377,7 +392,7 @@ module Creeper
     def working_actors
       Celluloid::Actor.all.tap do |actors|
         actors.delete_if do |actor|
-          actor.is_a?(Celluloid::PoolManager)
+          actor.is_a?(Celluloid::PoolManager) rescue false
         end
       end
     end
