@@ -235,7 +235,9 @@ module Creeper
 
     def error_work(worker, data, name, job)
       (worker.stopped_at = Time.now).tap do |stopped_at|
-        Logger.error "#{worker.prefix} Error in #{worker.time_in_milliseconds}ms #{worker.dump(job, name, data)}"
+        error_message = "#{worker.prefix} Error after #{worker.time_in_milliseconds}ms #{worker.dump(job, name, data)}"
+        ErrorLogger.error error_message
+        Logger.error error_message
       end
     end
 
@@ -262,7 +264,7 @@ module Creeper
 
     def start_work(worker, data, name, job)
       (worker.started_at = Time.now).tap do |started_at|
-        Logger.info "#{worker.prefix} Working #{Thread.list.count} #{worker.dump(job, name, data)}"
+        Logger.info "#{worker.prefix} Working #{worker.dump(job, name, data)}"
       end
     end
 
@@ -404,5 +406,6 @@ module Creeper
 
 end
 
-# require 'creeper/creep'
+require 'creeper/creep'
+require 'creeper/error_logger'
 require 'creeper/logger'
