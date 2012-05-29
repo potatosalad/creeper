@@ -26,9 +26,6 @@ module Creeper
 
   ## default configuration ##
 
-  @beanstalk_url   = ENV['BEANSTALK_URL'] || 'beanstalk://127.0.0.1/'
-  @err_logger      = ::Logger.new($stderr)
-  @out_logger      = ::Logger.new($stdout)
   @patience_soft   = 60
   @patience_hard   = 30
   @pool_size       = 2
@@ -44,7 +41,43 @@ module Creeper
     ## configuration ##
 
     attr_reader   :lock
-    attr_accessor :beanstalk_url, :error_logger, :logger, :patience_soft, :patience_hard, :pool_size, :reserve_timeout, :retry_count
+    attr_accessor :patience_soft, :patience_hard, :pool_size, :reserve_timeout, :retry_count
+
+    def beanstalk_url
+      lock.synchronize do
+        @beanstalk_url ||= ENV['BEANSTALK_URL'] || 'beanstalk://127.0.0.1/'
+      end
+    end
+
+    def beanstalk_url=(beanstalk_url)
+      lock.synchronize do
+        @beanstalk_url = beanstalk_url
+      end
+    end
+
+    def err_logger
+      lock.synchronize do
+        @err_logger ||= ::Logger.new($stderr)
+      end
+    end
+
+    def err_logger=(err_logger)
+      lock.synchronize do
+        @err_logger = err_logger
+      end
+    end
+
+    def out_logger
+      lock.synchronize do
+        @out_logger ||= ::Logger.new($stdout)
+      end
+    end
+
+    def out_logger=(out_logger)
+      lock.synchronize do
+        @out_logger = out_logger
+      end
+    end
 
     def worker_pool
       lock.synchronize do
