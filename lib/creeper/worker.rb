@@ -3,15 +3,36 @@ require 'creeper'
 require 'celluloid'
 require 'creeper/celluloid_ext'
 
+Creeper.logger = Celluloid.logger
+
 module Creeper
 
   at_exit { shutdown_workers }
 
   class Worker
 
+    def self.work(jobs = nil, size = 2)
+
+      options = {
+        size: size,
+        args: [jobs]
+      }
+
+      Creeper.worker_pool = Creeper::Worker.pool(options)
+
+      begin
+        trap(:INT)  { Creeper.shutdown = true }
+        trap(:TERM) { Creeper.shutdown = true }
+        trap(:QUIT) { Creeper.shutdown = true }
+        Creeper.worker_pool.start
+      end until Creeper.shutdown?
+
+      exit
+    end
+
     include Celluloid
 
-    attr_accessor :number, :started_at, :stopped_at
+    attr_accessor :number
     attr_reader :jobs
 
     def initialize(jobs = nil)
@@ -23,7 +44,7 @@ module Creeper
     end
 
     def dump(job, name = nil, data = nil)
-      "{ job: #{(job.inspect rescue nil)}, name: #{name.inspect rescue nil}, data: #{(data.inspect rescue nil)} }"
+      "#{name.inspect rescue nil} { data: #{(data.inspect rescue nil)}, job: #{(job.inspect rescue nil)} }"
     end
 
     def prefix
@@ -32,6 +53,22 @@ module Creeper
 
     def time_in_milliseconds
       ((stopped_at - started_at).to_f * 1000).to_i
+    end
+
+    def started_at
+      Thread.current[:creeper_started_at]
+    end
+
+    def started_at=(started_at)
+      Thread.current[:creeper_started_at] = started_at
+    end
+
+    def stopped_at
+      Thread.current[:creeper_stopped_at]
+    end
+
+    def stopped_at=(stopped_at)
+      Thread.current[:creeper_stopped_at] = stopped_at
     end
 
     ## beanstalk ##
@@ -88,10 +125,17 @@ module Creeper
       Logger.debug "#{prefix} Got #{job.inspect}"
 
       work! job # asynchronously go to work
+    rescue SystemExit => e
+      job.release rescue nil
+      Creeper.unregister_worker(self)
     rescue => e
       job.release rescue nil
       Creeper.unregister_worker(self, "start loop error")
       raise
+    end
+
+    def finalize
+      Creeper.disconnect
     end
 
     def stop
@@ -124,6 +168,8 @@ module Creeper
 
       Creeper.stop_work(self, data, name, job)
 
+      start! unless stopped? # continue processing, even when end of links is reached
+
     rescue Beanstalk::NotConnected => e
       disconnected(self, :work, job) || begin
         job.release rescue nil
@@ -133,7 +179,6 @@ module Creeper
     rescue SystemExit => e
       job.release rescue nil
       Creeper.unregister_worker(self)
-      raise
     rescue => e
 
       job.bury rescue nil
@@ -150,8 +195,8 @@ module Creeper
 
       raise
     ensure
-      @started_at = nil
-      @stopped_at = nil
+      Thread.current[:creeper_started_at] = nil
+      Thread.current[:creeper_stopped_at] = nil
       Thread.current[:creeper_working] = false
     end
 
@@ -177,7 +222,7 @@ module Creeper
     end
 
     def stopped?
-      Thread.current[:creeper_stopped] == true
+      Thread.current[:creeper_stopped] == true || Creeper.shutdown?
     end
 
     def working?

@@ -29,6 +29,7 @@ module Creeper
   @logger          = ::Logger.new($stderr)
   @patience_soft   = 60
   @patience_hard   = 30
+  @pool_size       = 2
   @retry_count     = 3
   @reserve_timeout = 1
 
@@ -41,19 +42,31 @@ module Creeper
     ## configuration ##
 
     attr_reader   :lock
-    attr_accessor :beanstalk_url, :logger, :patience_soft, :patience_hard, :reserve_timeout, :retry_count
+    attr_accessor :beanstalk_url, :logger, :patience_soft, :patience_hard, :pool_size, :reserve_timeout, :retry_count
 
-    # def worker_pool
-    #   lock.synchronize do
-    #     @worker_pool
-    #   end
-    # end
+    def worker_pool
+      lock.synchronize do
+        @worker_pool
+      end
+    end
 
-    # def worker_pool=(worker_pool)
-    #   lock.synchronize do
-    #     @worker_pool = worker_pool
-    #   end
-    # end
+    def worker_pool=(worker_pool)
+      lock.synchronize do
+        @worker_pool = worker_pool
+      end
+    end
+
+    def shutdown?
+      lock.synchronize do
+        !!@shutdown
+      end
+    end
+
+    def shutdown=(shutdown)
+      lock.synchronize do
+        @shutdown = shutdown
+      end
+    end
 
     ##
 
@@ -86,16 +99,7 @@ module Creeper
     def work(jobs = nil, size = 2)
       require 'creeper/worker'
 
-      options = {
-        size: size,
-        args: [jobs]
-      }
-
-      worker_pool = Creeper::Worker.pool(options)
-
-      loop do
-        worker_pool.start
-      end
+      Creeper::Worker.work(jobs, size)
     end
 
     ##
@@ -193,7 +197,8 @@ module Creeper
     ## queue ##
 
     def enqueue(job, data = {}, options = {})
-      Logger.debug "Enqueueing #{job.inspect}, #{data.inspect}"#\n#{Celluloid::Actor.all.pretty_inspect}"
+      # Logger.debug "#{Thread.current[:actor].inspect} Enqueueing #{job.inspect}, #{data.inspect}"#\n#{Celluloid::Actor.all.pretty_inspect}"
+      Logger.debug "[#{Thread.current[:actor] ? Thread.current[:actor].subject.number : nil}] Enqueueing #{job.inspect}, #{data.inspect}"
       enqueue!(job, data, options)
     rescue Beanstalk::NotConnected => e
       disconnected(self, :enqueue, job, data, options)
@@ -241,7 +246,7 @@ module Creeper
 
     def start_work(worker, data, name, job)
       (worker.started_at = Time.now).tap do |started_at|
-        Logger.debug "#{worker.prefix} Working #{worker.dump(job, name, data)}"
+        Logger.debug "#{worker.prefix} Working #{Thread.list.count} #{worker.dump(job, name, data)}"
       end
     end
 
@@ -323,6 +328,13 @@ module Creeper
         # Attempt to shut down the supervision tree, if available
         Celluloid::Supervisor.root.terminate if Celluloid::Supervisor.root
 
+        pool_managers.each do |pool_manager|
+          begin
+            pool_manager.terminate
+          rescue Celluloid::DeadActorError, Celluloid::MailboxError
+          end
+        end
+
         # Actors cannot self-terminate, you must do it for them
         working_actors.each do |actor|
           begin
@@ -352,6 +364,14 @@ module Creeper
       end
 
       Logger.info "Killing completed cleanly"
+    end
+
+    def pool_managers
+      Celluloid::Actor.all.tap do |actors|
+        actors.keep_if do |actor|
+          actor.is_a?(Celluloid::PoolManager)
+        end
+      end
     end
 
     def working_actors
