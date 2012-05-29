@@ -16,15 +16,16 @@ module Celluloid
   class PoolManager
 
     # ensure that the provisioned worker is alive to prevent PoolManager from dying
-    alias :original_provision_worker :provision_worker
-    def provision_worker
-      if (worker = original_provision_worker).alive?
-        return worker
+    def execute(method, *args, &block)
+      worker = provision_worker
+      
+      begin
+        worker._send_ method, *args, &block
+      rescue Celluloid::DeadActorError, Celluloid::MailboxError
+        execute(method, *args, &block)
+      ensure
+        @idle << worker if worker && worker.alive?
       end
-      until worker.alive?
-        worker = original_provision_worker
-      end
-      worker
     end
 
     def crash_handler(actor, reason)
