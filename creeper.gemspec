@@ -21,6 +21,5 @@ Gem::Specification.new do |gem|
 
   gem.add_dependency 'beanstalk-client'
   gem.add_dependency 'celluloid'
-  gem.add_dependency 'em-jack'
   gem.add_dependency 'kgio'
 end
