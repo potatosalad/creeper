@@ -12,7 +12,9 @@ module Creeper
 
   class Worker
 
-    def self.work(jobs = nil, size = 2)
+    def self.work(jobs = nil, size = nil)
+
+      size ||= Creeper.pool_size
 
       options = {
         size: size,

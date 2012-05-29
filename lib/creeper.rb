@@ -98,10 +98,10 @@ module Creeper
 
     ## daemon ##
 
-    def work(jobs = nil, size = 2)
+    def work(jobs = nil, size = nil)
       require 'creeper/worker'
 
-      Creeper.pool_size = size
+      Creeper.pool_size = size || Creeper.pool_size
 
       Creeper::Worker.work(jobs, Creeper.pool_size)
     end
