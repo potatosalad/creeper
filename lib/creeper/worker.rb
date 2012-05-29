@@ -4,7 +4,7 @@ require 'celluloid'
 require 'creeper/celluloid_ext'
 # require 'em-jack'
 
-Creeper.logger = Celluloid.logger
+Creeper.error_logger = Celluloid.logger
 
 module Creeper
 
@@ -16,7 +16,7 @@ module Creeper
 
       options = {
         size: size,
-        args: [jobs, size]
+        args: [jobs]
       }
 
       Creeper.worker_pool = Creeper::Worker.pool(options)
@@ -91,11 +91,10 @@ module Creeper
     include Celluloid
 
     attr_accessor :number
-    attr_reader :jobs, :pool_size
+    attr_reader   :jobs
 
-    def initialize(jobs = nil, pool_size = 2)
-      @jobs      = self.class.jobs_for(jobs)
-      @pool_size = pool_size
+    def initialize(jobs = nil)
+      @jobs = self.class.jobs_for(jobs)
 
       Creeper.register_worker(self)
       Logger.info "#{prefix} Working #{self.jobs.size} jobs: [ #{self.jobs.join(' ')} ]"
@@ -110,7 +109,7 @@ module Creeper
     end
 
     def number_format
-      "%#{pool_size.to_s.length}d"
+      "%#{Creeper.pool_size.to_s.length}d"
     end
 
     def time_in_milliseconds

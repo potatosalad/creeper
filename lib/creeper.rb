@@ -27,7 +27,8 @@ module Creeper
   ## default configuration ##
 
   @beanstalk_url   = ENV['BEANSTALK_URL'] || 'beanstalk://127.0.0.1/'
-  @logger          = ::Logger.new($stderr)
+  @error_logger    = ::Logger.new($stderr)
+  @logger          = ::Logger.new($stdout)
   @patience_soft   = 60
   @patience_hard   = 30
   @pool_size       = 2
@@ -100,7 +101,9 @@ module Creeper
     def work(jobs = nil, size = 2)
       require 'creeper/worker'
 
-      Creeper::Worker.work(jobs, size)
+      Creeper.pool_size = size
+
+      Creeper::Worker.work(jobs, Creeper.pool_size)
     end
 
     ##

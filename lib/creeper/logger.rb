@@ -19,7 +19,7 @@ module Creeper
 
     # Send an error message
     def error(string)
-      Creeper.logger.error(string) if Creeper.logger
+      Creeper.error_logger.error(string) if Creeper.error_logger
     end
 
     # Handle a crash
