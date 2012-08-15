@@ -1,331 +1,85 @@
-require 'creeper'
-
-require 'celluloid'
-require 'creeper/celluloid_ext'
-# require 'em-jack'
+require 'creeper/client'
+require 'creeper/core_ext'
 
 module Creeper
 
-  at_exit { shutdown_workers }
-
-  class Worker
-
-    def self.work(jobs = nil, size = nil)
-
-      size ||= Creeper.pool_size
-
-      options = {
-        size: size,
-        args: [jobs]
-      }
-
-      Creeper.worker_pool = Creeper::Worker.pool(options)
-
-      begin
-        trap(:INT)  { Creeper.shutdown = true }
-        trap(:TERM) { Creeper.shutdown = true }
-        trap(:QUIT) { Creeper.shutdown = true }
-        Creeper.worker_pool.start
-      end until Creeper.shutdown?
-
-      exit
+  ##
+  # Include this module in your worker class and you can easily create
+  # asynchronous jobs:
+  #
+  # class HardWorker
+  #   include Creeper::Worker
+  #
+  #   def perform(*args)
+  #     # do some work
+  #   end
+  # end
+  #
+  # Then in your Rails app, you can do this:
+  #
+  #   HardWorker.perform_async(1, 2, 3)
+  #
+  # Note that perform_async is a class method, perform is an instance method.
+  module Worker
+    def self.included(base)
+      base.extend(ClassMethods)
+      base.class_attribute :creeper_options_hash
     end
 
-    # def self.em_work(jobs = nil, size = 2)
-
-    #   options = {
-    #     size: size,
-    #     args: [jobs]
-    #   }
-
-    #   tubes = jobs_for(jobs)
-
-    #   Creeper.worker_pool = Creeper::Worker.pool(options)
-
-    #   sleep 1
-
-    #   EM.run do
-    #     trap(:INT)  { Creeper.shutdown = true; EM.stop }
-    #     trap(:TERM) { Creeper.shutdown = true; EM.stop }
-    #     trap(:QUIT) { Creeper.shutdown = true; EM.stop }
-
-    #     jack = EMJack::Connection.new(Creeper.beanstalk_url)
-
-    #     reserve_loop = ->(timeout) do
-    #       r = jack.reserve(timeout)
-    #       r.callback do |job|
-    #         Creeper.worker_pool.work! job
-    #         EM.next_tick { reserve_loop.call(timeout) }
-    #       end
-    #       r.errback do
-    #         EM.next_tick { reserve_loop.call(timeout) }
-    #       end
-    #     end
-
-    #     watch_tubes = ->(list) do
-    #       if list.empty?
-    #         reserve_loop.call(Creeper.reserve_timeout)
-    #       else
-    #         w = jack.watch(list.shift)
-    #         w.callback do
-    #           watch_tubes.call(list)
-    #         end
-    #       end
-    #     end
-
-    #     watch_tubes.call(tubes)
-
-    #   end
-
-    # end
-
-    def self.jobs_for(jobs = nil)
-      case jobs
-      when :all, nil
-        Creeper.all_jobs
-      else
-        Array(jobs)
-      end
+    def logger
+      Creeper.logger
     end
 
-    include Celluloid
+    module ClassMethods
 
-    attr_accessor :number
-    attr_reader   :jobs
-
-    def initialize(jobs = nil)
-      @jobs = self.class.jobs_for(jobs)
-
-      Creeper.register_worker(self)
-      OutLogger.info "#{prefix} Working #{self.jobs.size} jobs: [ #{self.jobs.join(' ')} ]"
-    end
-
-    def dump(job, name = nil, data = nil)
-      "#{name.inspect rescue nil} { data: #{(data.inspect rescue nil)}, job: #{(job.inspect rescue nil)} }"
-    end
-
-    def prefix
-      "[#{number_format % number} - #{'%x' % Thread.current.object_id}]"
-    end
-
-    def number_format
-      "%#{Creeper.pool_size.to_s.length}d"
-    end
-
-    def time_in_milliseconds
-      ((stopped_at - started_at).to_f * 1000).to_i
-    end
-
-    def started_at
-      Thread.current[:creeper_started_at]
-    end
-
-    def started_at=(started_at)
-      Thread.current[:creeper_started_at] = started_at
-    end
-
-    def stopped_at
-      Thread.current[:creeper_stopped_at]
-    end
-
-    def stopped_at=(stopped_at)
-      Thread.current[:creeper_stopped_at] = stopped_at
-    end
-
-    ## beanstalk ##
-
-    def beanstalk
-      Creeper.beanstalk
-    end
-
-    def ignore(tube)
-      beanstalk.ignore(tube)
-    rescue Beanstalk::NotConnected => e
-      disconnected(self, :ignore, tube) || raise
-    end
-
-    def list_tubes_watched(cached = false)
-      beanstalk.list_tubes_watched
-    rescue Beanstalk::NotConnected => e
-      disconnected(self, :list_tubes_watched, cached) || raise
-    end
-
-    def reserve(timeout = nil)
-      beanstalk.reserve(timeout)
-    rescue Beanstalk::NotConnected => e
-      disconnected(self, :reserve, timeout) || raise
-    end
-
-    def watch(tube)
-      beanstalk.watch(tube)
-    rescue Beanstalk::NotConnected => e
-      disconnected(self, :watch, tube) || raise
-    end
-
-    ##
-
-    ## work ##
-
-    def start(short_circuit = false)
-      return false if short_circuit
-      exit         if stopped?
-      return true  if working?
-      prepare      if not prepared?
-
-      begin
-        job = reserve Creeper.reserve_timeout
-      rescue Beanstalk::TimedOut
-        OutLogger.debug "#{prefix} Back to the unemployment line" if $DEBUG
-        return false
-      end
-
-      exit if stopped?
-
-      Thread.current[:creeper_working] = true
-
-      OutLogger.debug "#{prefix} Got #{job.inspect}" if $DEBUG
-
-      work! job # asynchronously go to work
-    rescue SystemExit => e
-      job.release rescue nil
-      Creeper.unregister_worker(self)
-    rescue => e
-      job.release rescue nil
-      Creeper.unregister_worker(self, "start loop error")
-      raise
-    end
-
-    def finalize
-      Creeper.finalizers.each do |finalizer|
-        begin
-          case finalizer.arity
-          when 1
-            finalizer.call(self)
-          else
-            finalizer.call
-          end
-        rescue => e
-          OutLogger.crash "#{prefix} finalizer error", e
+      def creeper_legacy_queue(tube = nil)
+        return @creeper_legacy_queue if tube.nil?
+        (@creeper_legacy_queue = tube).tap do
+          Creeper.job_descriptions[@creeper_legacy_queue] = self
         end
       end
 
-    ensure
-      Creeper.disconnect
-    end
+      def perform_async(*args)
+        client_push('class' => self, 'args' => args)
+      end
 
-    def stop
-      Thread.current[:creeper_stopped] = true
-    end
+      def perform_in(interval, *args)
+        int = interval.to_f
+        ts = (int < 1_000_000_000 ? Time.now.to_f + int : int)
+        client_push('class' => self, 'args' => args, 'at' => ts)
+      end
+      alias_method :perform_at, :perform_in
 
-    def work(job)
+      ##
+      # Allows customization for this type of Worker.
+      # Legal options:
+      #
+      #   :queue - use a named queue for this Worker, default 'default'
+      #   :retry - enable the RetryJobs middleware for this Worker, default *true*
+      #   :timeout - timeout the perform method after N seconds, default *nil*
+      #   :backtrace - whether to save any error backtrace in the retry payload to display in web UI,
+      #      can be true, false or an integer number of lines to save, default *false*
+      def creeper_options(opts={})
+        self.creeper_options_hash = get_creeper_options.merge(stringify_keys(opts || {}))
+      end
 
-      exit if stopped?
+      DEFAULT_OPTIONS = { 'retry' => true, 'queue' => 'default' }
 
-      name, data = JSON.parse(job.body)
+      def get_creeper_options # :nodoc:
+        self.creeper_options_hash ||= DEFAULT_OPTIONS
+      end
 
-      Creeper.start_work(self, data, name, job)
-
-      begin
-        Creeper.before_handlers_for(name).each do |handler|
-          process(handler, data, name, job)
+      def stringify_keys(hash) # :nodoc:
+        hash.keys.each do |key|
+          hash[key.to_s] = hash.delete(key)
         end
-
-        Creeper.handler_for(name).tap do |handler|
-          process(handler, data, name, job)
-        end
-
-        Creeper.after_handlers_for(name).each do |handler|
-          process(handler, data, name, job)
-        end
+        hash
       end
 
-      job.delete
-
-      Creeper.stop_work(self, data, name, job)
-
-      # start! unless stopped? or EM.reactor_running?
-      start! unless stopped? # continue processing, even when end of links is reached
-
-    rescue Beanstalk::NotConnected => e
-      disconnected(self, :work, job) || begin
-        job.release rescue nil
-        Creeper.unregister_worker(self)
-        raise
-      end
-    rescue SystemExit => e
-      job.release rescue nil
-      Creeper.unregister_worker(self)
-    rescue => e
-
-      job.bury rescue nil
-
-      Creeper.error_work(self, data, name, job)
-
-      begin
-        Creeper.error_handlers_for(name).each do |handler|
-          process(handler, data, name, job)
-        end
+      def client_push(*args) # :nodoc:
+        Creeper::Client.push(*args)
       end
 
-      Creeper.unregister_worker(self, "work loop error, burying #{dump(job, name, data)}")
-
-      raise
-    ensure
-      Thread.current[:creeper_started_at] = nil
-      Thread.current[:creeper_stopped_at] = nil
-      Thread.current[:creeper_working] = false
     end
-
-    def process(handler, data, name, job)
-      case handler.arity
-      when 3
-        handler.call(data, name, job)
-      when 2
-        handler.call(data, name)
-      when 1
-        handler.call(data)
-      else
-        handler.call
-      end
-    end
-
-    ##
-
-    ## flags ##
-
-    def prepared?
-      Thread.current[:creeper_prepared] == true
-    end
-
-    def stopped?
-      Thread.current[:creeper_stopped] == true || Creeper.shutdown?
-    end
-
-    def working?
-      Thread.current[:creeper_working] == true
-    end
-
-    ##
-
-    protected
-
-    def disconnected(target, method, *args, &block)
-      Creeper.send(:disconnected, target, method, *args, &block)
-    end
-
-    def prepare
-      jobs.each do |job|
-        watch(job)
-      end
-
-      list_tubes_watched.each do |server, tubes|
-        tubes.each do |tube|
-          ignore(tube) unless jobs.include?(tube)
-        end
-      end
-
-      Thread.current[:creeper_prepared] = true
-    end
-
   end
 end
