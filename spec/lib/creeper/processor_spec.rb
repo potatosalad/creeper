@@ -35,6 +35,7 @@ describe Creeper::Processor do
       msg = Creeper.dump_json({ 'class' => MockWorker.to_s, 'args' => ['myarg'] })
 
       conn.should_receive(:close).and_return(true)
+      job.should_receive(:id).and_return(1)
       job.should_receive(:delete).and_return(true)
       boss.should_receive(:processor_done!).with(processor).and_return(nil)
 
@@ -46,6 +47,7 @@ describe Creeper::Processor do
       msg = Creeper.dump_json({ 'class' => MockWorker.to_s, 'args' => ['boom'] })
 
       conn.should_receive(:close).and_return(true)
+      job.should_receive(:id).and_return(1)
       job.should_receive(:bury).and_return(true)
 
       expect do
@@ -60,6 +62,7 @@ describe Creeper::Processor do
       re_raise = false
 
       conn.should_receive(:close).and_return(true)
+      job.should_receive(:id).and_return(1)
       job.should_receive(:bury).and_return(true)
 
       begin
@@ -76,6 +79,7 @@ describe Creeper::Processor do
       msgstr = Creeper.dump_json(msg)
 
       conn.should_receive(:close).and_return(true)
+      job.should_receive(:id).and_return(1)
       job.should_receive(:delete).and_return(true)
       boss.should_receive(:processor_done!).with(processor).and_return(nil)
 
