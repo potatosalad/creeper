@@ -86,7 +86,18 @@ module Creeper
   def self.redis(&block)
     @redis ||= Creeper::RedisConnection.create
     raise ArgumentError, "requires a block" if !block
-    @redis.with(&block)
+    tries = 0
+    begin
+      @redis.with(&block)
+    rescue Redis::TimeoutError, Redis::ConnectionError
+      tries += 1
+      if tries < 30
+        sleep tries
+        retry
+      else
+        raise
+      end
+    end
   end
 
   def self.redis=(hash)
