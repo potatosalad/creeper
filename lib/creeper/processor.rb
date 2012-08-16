@@ -2,7 +2,7 @@ require 'celluloid'
 require 'creeper/util'
 
 require 'creeper/middleware/server/active_record'
-# require 'creeper/middleware/server/retry_jobs'
+require 'creeper/middleware/server/retry_jobs'
 require 'creeper/middleware/server/logging'
 require 'creeper/middleware/server/timeout'
 
@@ -15,12 +15,12 @@ module Creeper
     include Util
     include Celluloid
 
-    exclusive :process
+    exclusive :process if ENV['CREEPER_EXCLUSIVE']
 
     def self.default_middleware
       Middleware::Chain.new do |m|
         m.add Middleware::Server::Logging
-        # m.add Middleware::Server::RetryJobs
+        m.add Middleware::Server::RetryJobs
         m.add Middleware::Server::ActiveRecord
         m.add Middleware::Server::Timeout
       end
@@ -37,7 +37,7 @@ module Creeper
       worker  = klass.new
 
       stats(worker, msg, queue) do
-        Creeper.server_middleware.invoke(worker, msg, queue) do
+        Creeper.server_middleware.invoke(worker, msg, queue, job, conn) do
           args   = msg['args']
           args ||= [msg]
           worker.perform(*cloned(args))

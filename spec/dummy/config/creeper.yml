@@ -1,0 +1,9 @@
+# Sample configuration file for Creeper.
+# Options here can still be overridden by cmd line args.
+#   creeper -C config.yml
+---
+:verbose: false
+:concurrency: 200
+:timeout: 30
+:queues:
+  - [default]

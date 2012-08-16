@@ -28,6 +28,8 @@ Gem::Specification.new do |gem|
   gem.add_development_dependency 'pry'
   gem.add_development_dependency 'rake'
   gem.add_development_dependency 'rspec'
+  gem.add_development_dependency 'sinatra'
+  gem.add_development_dependency 'slim'
   gem.add_development_dependency 'actionmailer', '~> 3'
   gem.add_development_dependency 'activerecord', '~> 3'
 end

@@ -64,6 +64,11 @@ describe Creeper::CLI do
       expect(Creeper.options[:queues]).to eq(%w(bar foo foo foo))
     end
 
+    it 'handles queues with multi-word names' do
+      cli.parse(['creeper', '-q', 'queue_one,queue-two', '-r', './spec/support/fake_env.rb'])
+      expect(Creeper.options[:queues]).to eq(%w(queue_one queue-two))
+    end
+
     it 'sets verbose' do
       old = Creeper.logger.level
       cli.parse(['creeper', '-v', '-r', './spec/support/fake_env.rb'])

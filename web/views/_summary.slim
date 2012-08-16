@@ -1,0 +1,9 @@
+.hero-unit
+  h1 Creeper is #{current_status}
+  p Processed: #{processed}
+  p Failed: #{failed}
+  p Buried: #{buried}
+  p Busy Workers: #{workers.size}
+  p Scheduled: #{scheduled}
+  p Retries Pending: #{zcard('retry')}
+  p Queue Backlog: #{backlog}

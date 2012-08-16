@@ -57,6 +57,9 @@ module Creeper
         payload = Creeper.dump_json([ queue, item ])
         args    = [ payload, priority, delay, time_to_run ]
         args.pop while args.last.nil?
+        Creeper.redis do |conn|
+          conn.sadd('queues', queue)
+        end
         Creeper.beanstalk do |beanstalk|
           beanstalk.on_tube(queue) do |conn|
             conn.put(*args)

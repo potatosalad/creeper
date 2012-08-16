@@ -5,6 +5,10 @@ gemspec
 
 gem 'rails', '3.2.8'
 
+gem 'slim'
+gem 'sprockets'
+gem 'sass'
+
 group :test do
   ## guard ##
   gem 'coolline'

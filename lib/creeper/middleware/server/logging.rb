@@ -3,8 +3,8 @@ module Creeper
     module Server
       class Logging
 
-        def call(*args)
-          Creeper::Logging.with_context("#{args[0].class.to_s} MSG-#{args[0].object_id.to_s(36)}") do
+        def call(worker, msg, queue, job, conn)
+          Creeper::Logging.with_context("#{worker.class.to_s} JOB-#{job.id rescue nil} MSG-#{worker.object_id.to_s(36)}") do
             begin
               start = Time.now
               logger.info { "start" }

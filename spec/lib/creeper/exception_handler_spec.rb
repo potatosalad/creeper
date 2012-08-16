@@ -68,7 +68,9 @@ describe Creeper::ExceptionHandler do
     end
 
     it "notifies ExceptionNotifier" do
-      ::ExceptionNotifier::Notifier.should_receive(:background_exception_notification).with(TEST_EXCEPTION, :data => { :message => { :b => 2 } }).and_return(nil)
+      mail = double('mail')
+      mail.should_receive(:deliver).and_return(nil)
+      ::ExceptionNotifier::Notifier.should_receive(:background_exception_notification).with(TEST_EXCEPTION, :data => { :message => { :b => 2 } }).and_return(mail)
       Component.new.invoke_exception(:b => 2)
     end
   end

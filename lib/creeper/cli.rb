@@ -13,7 +13,7 @@ trap 'QUIT' do
   Creeper.logger.info "Received QUIT, no longer accepting new work"
   mgr = Creeper::CLI.instance.manager
   if mgr
-    mgr.stop!(shutdown: true, timeout: 8)
+    mgr.stop!(shutdown: true, timeout: Creeper.options[:timeout])
     mgr.wait(:shutdown)
     # Explicitly exit so busy Processor threads can't block
     # process shutdown.
@@ -150,7 +150,7 @@ module Creeper
 
       @parser = OptionParser.new do |o|
         o.on "-q", "--queue QUEUE[,WEIGHT]...", "Queues to process with optional weights" do |arg|
-          queues_and_weights = arg.scan(/(\w+),?(\d*)/)
+          queues_and_weights = arg.scan(/([\w-]+),?(\d*)/)
           queues_and_weights.each {|queue_and_weight| parse_queues(opts, *queue_and_weight)}
           opts[:strict] = queues_and_weights.collect(&:last).none? {|weight| weight != ''}
         end
