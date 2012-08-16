@@ -32,12 +32,7 @@ module Creeper
 
     module ClassMethods
 
-      def creeper_legacy_queue(tube = nil)
-        return @creeper_legacy_queue if tube.nil?
-        (@creeper_legacy_queue = tube).tap do
-          Creeper.job_descriptions[@creeper_legacy_queue] = self
-        end
-      end
+      include Creeper::Legacy::WorkerMethods
 
       def perform_async(*args)
         client_push('class' => self, 'args' => args)

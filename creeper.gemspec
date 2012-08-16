@@ -17,10 +17,6 @@ Gem::Specification.new do |gem|
   gem.test_files    = gem.files.grep(%r{^(test|spec|features)/})
   gem.require_paths = ["lib"]
 
-  gem.add_development_dependency 'pry'
-  gem.add_development_dependency 'rake'
-  gem.add_development_dependency 'rspec'
-
   gem.add_dependency 'redis', '~> 3'
   gem.add_dependency 'redis-namespace'
   gem.add_dependency 'beanstalk-client'
@@ -28,4 +24,10 @@ Gem::Specification.new do |gem|
   gem.add_dependency 'celluloid',  '~> 0.11.1'
   gem.add_dependency 'kgio'
   gem.add_dependency 'multi_json', '~> 1'
+
+  gem.add_development_dependency 'pry'
+  gem.add_development_dependency 'rake'
+  gem.add_development_dependency 'rspec'
+  gem.add_development_dependency 'actionmailer', '~> 3'
+  gem.add_development_dependency 'activerecord', '~> 3'
 end

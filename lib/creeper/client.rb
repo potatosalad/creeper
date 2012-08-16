@@ -1,3 +1,4 @@
+require 'creeper/legacy'
 require 'creeper/middleware/chain'
 
 module Creeper
@@ -54,9 +55,11 @@ module Creeper
       pushed = false
       job = Creeper.client_middleware.invoke(worker_class, item, queue) do
         payload = Creeper.dump_json([ queue, item ])
+        args    = [ payload, priority, delay, time_to_run ]
+        args.pop while args.last.nil?
         Creeper.beanstalk do |beanstalk|
           beanstalk.on_tube(queue) do |conn|
-            conn.put(payload, priority, delay, time_to_run)
+            conn.put(*args)
           end
         end
         # Creeper.redis do |conn|

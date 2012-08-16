@@ -1,0 +1,9 @@
+---
+:verbose:      false
+:environment:  xzibit
+:require:      ./spec/support/fake_env.rb
+:pidfile:      /tmp/creeper-config-test.pid
+:concurrency:  50
+:queues:
+  - [often, 2]
+  - [seldom, 1]

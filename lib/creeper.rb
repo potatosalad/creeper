@@ -16,7 +16,7 @@ require 'multi_json'
 
 module Creeper
 
-  extend Creeper::Legacy
+  extend Creeper::Legacy::ClassMethods
 
   DEFAULTS = {
     :queues => [],

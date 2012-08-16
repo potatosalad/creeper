@@ -1,131 +1,65 @@
 require 'spec_helper'
+require 'creeper/cli'
 
 describe Creeper do
 
-  after :each do
-    Creeper.clear!
-  end
-  
-  it "work a job and do it up" do
-    val = rand(999999)
-    Creeper.job('my.job') { |args| $result = args['val'] }
-    Creeper.enqueue('my.job', :val => val)
-    w = Creeper::Worker.new
-    w.stub(:exception_message)
-    w.stub(:log)
-    w.prepare
-    w.work_one_job
-    val.should == $result
-  end
+  it 'is able to process a real job' do
+    pending 'still need to figure out how to test the daemon'
+    let(:cli) { Creeper::CLI.instance }
 
-  it "invoke error handler when defined" do
-    with_an_error_handler
-    Creeper.job('my.job') { |args| fail }
-    Creeper.enqueue('my.job', :foo => 123)
-    w = Creeper::Worker.new
-    w.stub(:exception_message)
-    w.stub(:log)
-    w.prepare
-    w.work_one_job
-    $handled.should_not == nil
-    'my.job'.should == $job_name
-    {'foo' => 123}.should ==  $job_args
-  end
+    before do
+      $rd, $wr = IO.pipe
+      $rd.sync, $wr.sync = true
+      if @pid = fork
+        # parent
+        $wr.close
+      else
+        # child
+        $rd.close
+        cli.parse(['creeper', '-r', './spec/support/fake_env.rb'])
+        sleep 5
+        begin
+          cli.run
+        rescue SystemExit
+          Process.kill(:KILL, $$)
+        end
+      end
+    end
 
-  it "should be compatible with legacy error handlers" do
-    exception = StandardError.new("Oh my, the job has failed!")
-    Creeper.error { |e| $handled = e }
-    Creeper.job('my.job') { |args| raise exception }
-    Creeper.enqueue('my.job')
-    w = Creeper::Worker.new
-    w.stub(:exception_message)
-    w.stub(:log)
-    w.prepare
-    w.work_one_job
-    exception.should == $handled
-  end
+    after do
+      if @pid
+        Process.kill(:TERM, @pid)
+        done = nil
+        # 8.times do
+        #   begin
+        #     Process.getpgid(@pid)
+        #   rescue Errno::ESRCH
+        #     done = true
+        #     break
+        #   end
+        #   sleep 1
+        # end
+        # expect(done).to be_true
+        sleep 1
+        Process.kill(:KILL, @pid)
+        child_pid, status = Process.waitpid2(-1, Process::WNOHANG)
+        expect(child_pid).to eq(@pid)
+        # expect(status).to be_success
 
-  it "continue working when error handler not defined" do
-    Creeper.error { |e| $handled = false }
-    Creeper.job('my.job') { fail }
-    Creeper.enqueue('my.job')
-    w = Creeper::Worker.new
-    w.stub(:exception_message)
-    w.stub(:log)
-    w.prepare
-    w.work_one_job
-    false.should == $handled
-  end
+        $rd.close rescue nil
+        $wr.close rescue nil
+      end
+    end
 
-  it "exception raised one second before beanstalk ttr reached" do
-    with_an_error_handler
-    Creeper.job('my.job') { sleep(3); $handled = "didn't time out" }
-    Creeper.enqueue('my.job', {}, :ttr => 2)
-    w = Creeper::Worker.new
-    w.stub(:exception_message)
-    w.stub(:log)
-    w.prepare
-    w.work_one_job
-    $handled.should == "didn't time out"
-  end
-
-  it "before filter gets run first" do
-    Creeper.before { |name| $flag = "i_was_here" }
-    Creeper.job('my.job') { |args| $handled = ($flag == 'i_was_here') }
-    Creeper.enqueue('my.job')
-    w = Creeper::Worker.new
-    w.stub(:exception_message)
-    w.stub(:log)
-    w.prepare
-    w.work_one_job
-    true.should == $handled
-  end
-
-  it "before filter passes the name of the job" do
-    Creeper.before { |name| $jobname = name }
-    Creeper.job('my.job') { true }
-    Creeper.enqueue('my.job')
-    w = Creeper::Worker.new
-    w.stub(:exception_message)
-    w.stub(:log)
-    w.prepare
-    w.work_one_job
-    'my.job'.should == $jobname
-  end
-
-  it "before filter can pass an instance var" do
-    Creeper.before { |name| @foo = "hello" }
-    Creeper.job('my.job') { |args| $handled = (@foo == "hello") }
-    Creeper.enqueue('my.job')
-    w = Creeper::Worker.new
-    w.stub(:exception_message)
-    w.stub(:log)
-    w.prepare
-    w.work_one_job
-    true.should == $handled
-  end
-
-  it "before filter invokes error handler when defined" do
-    with_an_error_handler
-    Creeper.before { |name| fail }
-    Creeper.job('my.job') {  }
-    Creeper.enqueue('my.job', :foo => 123)
-    w = Creeper::Worker.new
-    w.stub(:exception_message)
-    w.stub(:log)
-    w.prepare
-    w.work_one_job
-    $handled.should_not == nil
-    'my.job'.should ==  $job_name
-    {'foo' => 123}.should == $job_args
-  end
-
-  def with_an_error_handler
-    Creeper.error do |e, job_name, args|
-      $handled = e.class
-      $job_name = job_name
-      $job_args = args
+    it 'is able to process a real job' do
+      pending 'still need to figure out how to test the daemon'
+      RealWorker.perform_async(1, 2)
+      result = nil
+      Timeout::timeout(10) do
+        result = $rd.read
+      end
+      expect(result).to eq('[1,2]')
     end
   end
-  
+
 end
