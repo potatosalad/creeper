@@ -7,5 +7,10 @@ before_install:
 branches:
   only:
     - master
+env:
+  - BEANSTALK_URL=beanstalk://127.0.0.1:11300/
 notifications:
-  irc: "irc.freenode.org#delorum"
+  irc: 
+    channels:
+      - "chat.freenode.net#delorum"
+      - "irc.freenode.org#testing-creeper"
