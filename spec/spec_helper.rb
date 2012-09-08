@@ -18,9 +18,6 @@ Spork.prefork do
 
   Creeper.logger.level = Logger::ERROR
 
-  require 'creeper/beanstalk_connection'
-  BEANSTALK = Creeper::BeanstalkConnection.create
-
   require 'creeper/redis_connection'
   REDIS = Creeper::RedisConnection.create(url: "redis://localhost/15", namespace: 'creepy')
 
