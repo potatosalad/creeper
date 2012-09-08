@@ -1,5 +1,7 @@
 # Creeper
 
+[![Build Status](https://secure.travis-ci.org/potatosalad/creeper.png)](http://travis-ci.org/potatosalad/creeper)
+
 TODO: Write a gem description
 
 ## Installation
